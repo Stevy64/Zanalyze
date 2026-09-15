@@ -6,10 +6,12 @@ from django.http import FileResponse, JsonResponse
 from django.urls import include, path, re_path
 
 from paris import views
+from paris.admin_auth import CaseInsensitiveAdminAuthForm
 
 admin.site.site_header = 'Zanalyze'
 admin.site.site_title = 'Zanalyze'
 admin.site.index_title = 'Saisie et consultation'
+admin.site.login_form = CaseInsensitiveAdminAuthForm
 
 
 def health(_request):

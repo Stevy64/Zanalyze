@@ -287,7 +287,12 @@
                 <span class="panel-ico" x-html="icon('trophy')"></span>
                 <div>
                   <h2>Bilan des recommandations</h2>
-                  <p class="hint" x-show="recoFiche.length">Résultat réel face aux tips proposés pour ce match.</p>
+                  <p class="hint" x-show="peutBilanComplet && recoFiche.length">
+                    Résultat réel face aux tips proposés pour ce match.
+                  </p>
+                  <p class="hint" x-show="!peutBilanComplet && recoFiche.length">
+                    Aperçu public : Prudent + Sécurité (OK/KO). Bilan complet réservé Premium.
+                  </p>
                   <p class="hint" x-show="!recoFiche.length">
                     Score final <strong x-text="fiche.score || '—'"></strong>.
                     Aucun tip archivé pour ce match.
@@ -325,6 +330,19 @@
               <div class="badges-row">
                 <span class="badge soft" x-text="fiche.competition.code"></span>
                 <span class="badge soft" x-text="fiche.statut === 'termine' ? 'Terminé' : 'À venir'"></span>
+              </div>
+              <div class="prono-box" x-show="peutVip && fiche.statut === 'a_venir'" x-cloak>
+                <p class="hint">Ton pronostic Premium (1X2) — gagne des points pour le classement.</p>
+                <div class="prono-row">
+                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '1' ? '' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('1')"
+                    x-text="fiche.domicile.nom_court"></button>
+                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === 'N' ? '' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('N')">Nul</button>
+                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '2' ? '' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('2')"
+                    x-text="fiche.exterieur.nom_court"></button>
+                </div>
               </div>
               <div class="fiche-vs">
                 <button type="button" class="crest-btn lg" @click="ouvrirClub(fiche.domicile, $event)"
@@ -677,9 +695,9 @@
           <div class="salon-head-main">
             <h1 class="salon-title">
               <span class="salon-crown" x-html="icon('crown','icon icon-sm')"></span>
-              Salon VIP
+              Salon Premium
             </h1>
-            <p class="salon-sub">Réservé VIP · messages effacés après 24 h</p>
+            <p class="salon-sub">Réservé Premium · messages effacés après 24 h</p>
           </div>
           <div class="salon-head-right">
             <span class="salon-online" x-show="peutVip" x-cloak
@@ -695,18 +713,50 @@
         <template x-if="!peutVip">
           <div class="salon-gate">
             <span class="salon-gate-ico" x-html="icon('crown','icon icon-lg')"></span>
-            <h2>Salon VIP</h2>
-            <p>Ici, c’est le vestiaire des VIP : discussions, avis, ambiance match.
-              Passe VIP pour entrer.</p>
+            <h2>Salon Premium</h2>
+            <p>Ici, c’est le vestiaire Premium : discussions, avis, ambiance match.
+              Passe Premium pour entrer.</p>
             <button type="button" class="btn btn-vip" @click="ouvrirVipGate('salon')">
               <span x-html="icon('crown','icon icon-sm')"></span>
-              Devenir VIP
+              Devenir Premium
             </button>
           </div>
         </template>
 
         <template x-if="peutVip">
           <div class="salon-shell">
+            <div class="salon-tabs no-print">
+              <button type="button" class="puce" :class="salonOnglet === 'chat' ? 'on' : ''"
+                @click="salonOnglet = 'chat'">Discussion</button>
+              <button type="button" class="puce" :class="salonOnglet === 'classement' ? 'on' : ''"
+                @click="salonOnglet = 'classement'; chargerClassement()">Classement</button>
+            </div>
+            <template x-if="salonOnglet === 'classement'">
+              <div class="classement-wrap">
+                <p class="hint">Pronostique le 1X2 avant le coup d’envoi : +12 pts si OK, +2 pts de participation.</p>
+                <div class="premium-score" x-show="classementMoi" x-cloak>
+                  <span class="bilan-chip ok" x-text="(classementMoi && classementMoi.points) + ' pts'"></span>
+                  <span class="bilan-chip wait" x-text="classementMoi && classementMoi.grade_libelle"></span>
+                </div>
+                <div class="loader-wrap" x-show="classementChargement" x-cloak>
+                  <div class="spinner" role="status"></div>
+                </div>
+                <ol class="classement-liste" x-show="!classementChargement">
+                  <template x-for="row in classement" :key="row.username">
+                    <li>
+                      <span class="cl-rang" x-text="'#' + row.rang"></span>
+                      <strong x-text="row.username"></strong>
+                      <span class="cl-grade" x-text="row.grade_libelle"></span>
+                      <span class="cl-pts" x-text="row.points + ' pts'"></span>
+                    </li>
+                  </template>
+                </ol>
+                <p class="vide vide-sm" x-show="!classementChargement && !classement.length">
+                  Aucun point pour l’instant — lance ton premier pronostic sur une fiche match.
+                </p>
+              </div>
+            </template>
+            <template x-if="salonOnglet === 'chat'">
             <div class="salon-feed" x-ref="salonFeed" @scroll.passive="onSalonScroll()">
               <div class="salon-empty" x-show="!chatChargement && !chatMessages.length" x-cloak>
                 <p>Encore calme ici… Lance le premier message, allez.</p>
@@ -767,6 +817,7 @@
               </button>
             </form>
             <p class="salon-hint" x-show="chatErr" x-cloak x-text="chatErr"></p>
+            </template>
           </div>
         </template>
       </div>
@@ -789,15 +840,19 @@
               </p>
               <p class="hint" x-show="categorie === 'membre'" x-cloak>
                 Accès Membre : matchs, likes / dislikes.
-                Nos Zanalyze, justifications + Salon VIP = badge VIP.
+                Nos Zanalyze, justifications + Salon Premium = badge Premium.
               </p>
-              <p class="hint" x-show="categorie === 'vip'" x-cloak>
-                Statut VIP : Nos Zanalyze, justifications complètes + Salon VIP.
+              <p class="hint" x-show="categorie === 'premium'" x-cloak>
+                Statut Premium : Nos Zanalyze, justifications, Salon Premium + classement pronostics.
               </p>
+              <div class="premium-score" x-show="categorie === 'premium'" x-cloak>
+                <span class="bilan-chip ok" x-text="pointsPremium + ' pts'"></span>
+                <span class="bilan-chip wait" x-text="libGrade(gradePremium)"></span>
+              </div>
               <button type="button" class="btn btn-vip" x-show="categorie === 'membre'" x-cloak
                 @click="ouvrirVipGate('reglages')">
                 <span x-html="icon('crown','icon icon-sm')"></span>
-                Demander le VIP
+                Demander Premium
               </button>
               <button type="button" class="btn btn-ghost" @click="authLogout()">Se déconnecter</button>
             </div>
@@ -1001,14 +1056,21 @@
         <p>Chargement de l’analyse…</p>
       </div>
       <div class="vide vide-sm no-print" x-show="!chargementJour && !predictionsJour.length" x-cloak>
-        <p>Aucun pari proposé pour cette date.</p>
+        <p x-text="jourPasseCompos
+          ? 'Aucun bilan tip pour cette date.'
+          : 'Aucun pari proposé pour cette date.'"></p>
       </div>
 
       <div id="compos-print" class="compos-print" x-show="!chargementJour && predictionsJour.length">
         <header class="compos-head">
           <div>
-            <h2>Nos Zanalyze</h2>
-            <p class="hint">Voici notre sélection du jour, tirée de notre moteur de prédiction Zanalyze</p>
+            <h2 x-text="jourPasseCompos ? 'Bilans Zanalyze' : 'Nos Zanalyze'"></h2>
+            <p class="hint" x-show="!jourPasseCompos">
+              Voici notre sélection du jour, tirée de notre moteur de prédiction Zanalyze
+            </p>
+            <p class="hint" x-show="jourPasseCompos" x-cloak>
+              Bilans du jour : score final + OK/KO des tips. Partage ou exporte en PDF.
+            </p>
           </div>
           <span class="compos-print-date" x-text="fmtJour((jourDate || dateAujourdhui()) + 'T12:00:00')"></span>
         </header>
@@ -1020,7 +1082,8 @@
                   <span class="flag-wrap" x-html="drapeauComp(bloc.competition)"></span>
                   <span x-text="bloc.competition.code"></span>
                 </span>
-                <span class="cj-horaire" x-text="heure(bloc.coup_denvoi)"></span>
+                <span class="cj-horaire" x-show="!jourPasseCompos" x-text="heure(bloc.coup_denvoi)"></span>
+                <span class="cj-horaire" x-show="jourPasseCompos" x-cloak x-text="bloc.score || '—'"></span>
               </div>
               <div class="cj-teams">
                 <div class="cj-club">
@@ -1054,17 +1117,20 @@
                     <span class="opt-niv">
                       Prudent
                       <span class="vip-lock-pill" x-show="!peutVip" x-cloak>
-                        <span x-html="icon('crown','icon icon-sm')"></span> VIP
+                        <span x-html="icon('crown','icon icon-sm')"></span> Premium
                       </span>
                     </span>
                     <span class="pred-lib" x-text="bloc.prudente && bloc.prudente.libelle"></span>
                   </div>
                   <strong class="pred-pct"
+                    x-show="!jourPasseCompos"
                     x-text="bloc.prudente && fmtPct(bloc.prudente.probabilite)"></strong>
+                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                    x-text="bloc.prudente && libResultatTip(bloc.prudente)"></strong>
                 </button>
                 <button type="button" class="compos-opt pred-recommandee"
                   :class="!peutVip ? 'is-locked' : ''"
-                  x-show="bloc.recommandee" x-cloak
+                  x-show="bloc.recommandee && (!jourPasseCompos || peutBilanComplet)" x-cloak
                   @click="ouvrirJustif(bloc, bloc.recommandee)"
                   :aria-label="'Justification : ' + (bloc.recommandee && bloc.recommandee.libelle)">
                   <span class="pred-mark" aria-hidden="true" x-html="icon('trending')"></span>
@@ -1072,13 +1138,16 @@
                     <span class="opt-niv">
                       Recommandé
                       <span class="vip-lock-pill" x-show="!peutVip" x-cloak>
-                        <span x-html="icon('crown','icon icon-sm')"></span> VIP
+                        <span x-html="icon('crown','icon icon-sm')"></span> Premium
                       </span>
                     </span>
                     <span class="pred-lib" x-text="bloc.recommandee && bloc.recommandee.libelle"></span>
                   </div>
                   <strong class="pred-pct"
+                    x-show="!jourPasseCompos"
                     x-text="bloc.recommandee && fmtPct(bloc.recommandee.probabilite)"></strong>
+                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                    x-text="bloc.recommandee && libResultatTip(bloc.recommandee)"></strong>
                 </button>
                 <button type="button" class="compos-opt pred-filet"
                   :class="!peutVip ? 'is-locked' : ''"
@@ -1090,13 +1159,16 @@
                     <span class="opt-niv">
                       Sécurité
                       <span class="vip-lock-pill" x-show="!peutVip" x-cloak>
-                        <span x-html="icon('crown','icon icon-sm')"></span> VIP
+                        <span x-html="icon('crown','icon icon-sm')"></span> Premium
                       </span>
                     </span>
                     <span class="pred-lib" x-text="bloc.filet && bloc.filet.libelle"></span>
                   </div>
                   <strong class="pred-pct"
+                    x-show="!jourPasseCompos"
                     x-text="bloc.filet && fmtPct(bloc.filet.probabilite)"></strong>
+                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                    x-text="bloc.filet && libResultatTip(bloc.filet)"></strong>
                 </button>
               </div>
             </article>
@@ -1274,7 +1346,7 @@
           </p>
         </section>
         <section>
-          <h3>7. Compte utilisateur et accès VIP</h3>
+          <h3>7. Compte utilisateur et accès Premium</h3>
           <p>
             Vous êtes responsable de la confidentialité de vos identifiants et de
             toute activité réalisée via votre compte. L’éditeur peut suspendre ou
@@ -1282,7 +1354,7 @@
             ou d’usage contraire aux présentes CGU.
           </p>
           <p>
-            Les fonctionnalités VIP éventuelles sont des accès à des contenus
+            Les fonctionnalités Premium éventuelles sont des accès à des contenus
             d’analyse supplémentaires ; elles n’offrent aucune garantie de résultat
             sur les paris.
           </p>
@@ -1383,6 +1455,11 @@
         <template x-if="apercu.statut !== 'termine' && !optionsApercu(apercu).length">
           <p class="hint">Pas encore d’analyse pour ce match.</p>
         </template>
+        <template x-if="apercu.statut === 'termine' && !peutBilanComplet && optionsApercu(apercu).length">
+          <p class="hint">
+            Aperçu public : Prudent + Sécurité. Le bilan complet (tous tips) est réservé Premium.
+          </p>
+        </template>
         <template x-for="o in optionsApercu(apercu)" :key="o.code">
           <div :class="'opt-mini opt-' + o.niveau + (apercu.statut === 'termine' ? (' bilan-' + (o.resultat || 'attente')) : '')">
             <div class="opt-top">
@@ -1405,7 +1482,9 @@
         </template>
         <button type="button" class="btn btn-block"
           @click="ouvrirMatch(apercu.id)"
-          x-text="apercu.statut === 'termine' ? 'Voir le bilan complet' : 'Voir tous les détails'"></button>
+          x-text="apercu.statut === 'termine'
+            ? (peutBilanComplet ? 'Voir le bilan complet' : 'Voir le match')
+            : 'Voir tous les détails'"></button>
         <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
       </div>
     </template>
@@ -1469,7 +1548,7 @@
   </div>
 
   <div class="bottom-sheet sheet-vip" :class="sheetVip ? 'open' : ''"
-    role="dialog" aria-modal="true" aria-label="Devenir VIP"
+    role="dialog" aria-modal="true" aria-label="Devenir Premium"
     :aria-hidden="!sheetVip">
     <div class="sheet-handle sheet-handle-drag" aria-hidden="true"
       @touchstart.passive="sheetDragStart($event)"
@@ -1478,18 +1557,19 @@
     <div class="sheet-body vip-sheet-body">
       <div class="vip-sheet-hero">
         <span class="vip-sheet-ico" x-html="icon('crown','icon icon-lg')"></span>
-        <h2>Passe VIP</h2>
-        <p class="vip-tarif" x-text="vipTarifLibelle || 'VIP Zanalyze'"></p>
+        <h2>Passe Premium</h2>
+        <p class="vip-tarif" x-text="vipTarifLibelle || 'Premium Zanalyze'"></p>
       </div>
       <ul class="vip-perks">
-        <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyze (sélection tips)</li>
+        <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyze (sélection + bilans)</li>
         <li><span x-html="icon('crosshair','icon icon-sm')"></span> Justifications complètes des tips</li>
-        <li><span x-html="icon('message','icon icon-sm')"></span> Accès au Salon VIP</li>
+        <li><span x-html="icon('message','icon icon-sm')"></span> Accès au Salon Premium</li>
+        <li><span x-html="icon('trophy','icon icon-sm')"></span> Pronostics 1X2, points et grades</li>
         <li><span x-html="icon('badge-check','icon icon-sm')"></span> Statut couronne visible sur ton compte</li>
       </ul>
       <p class="hint vip-hint">
         Réservé aux comptes membres : envoie ta demande sur WhatsApp avec ton pseudo.
-        Après paiement, l’admin active ton badge VIP.
+        Après paiement, l’admin active ton badge Premium.
       </p>
       <a class="btn btn-block btn-whatsapp"
         x-show="authentifie && whatsappVipUrl" x-cloak
@@ -1501,8 +1581,8 @@
       </p>
       <button type="button" class="btn btn-block"
         x-show="!authentifie" x-cloak
-        @click="ouvrirAuth('Connecte-toi ou crée un compte pour demander le VIP via WhatsApp.', () => ouvrirVipGate('auth'))">
-        Se connecter pour demander le VIP
+        @click="ouvrirAuth('Connecte-toi ou crée un compte pour demander Premium via WhatsApp.', () => ouvrirVipGate('auth'))">
+        Se connecter pour demander Premium
       </button>
       <button type="button" class="btn btn-ghost btn-block" @click="fermerVipGate()">Plus tard</button>
     </div>
@@ -1597,7 +1677,7 @@
           x-text="chatUnread > 9 ? '9+' : chatUnread"
           :aria-label="chatUnread + ' messages non lus'"></span>
       </span>
-      Salon VIP
+      Salon Premium
     </a>
     <a href="/reglages" :class="page==='reglages' ? 'on' : ''" @click.prevent="go('/reglages')">
       <span x-html="icon('settings','icon icon-md')"></span>

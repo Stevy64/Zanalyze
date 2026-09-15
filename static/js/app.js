@@ -390,7 +390,7 @@ function zanalyz() {
     get kickerPage() {
       return {
         fiche: 'Analyse',
-        salon: 'Salon VIP',
+        salon: 'Salon Premium',
         reglages: 'Compte',
       }[this.page] || '';
     },
@@ -445,9 +445,12 @@ function zanalyz() {
     _chatPoll: null,
     _chatStickBottom: true,
     estVip: false,
+    estAdmin: false,
+    pointsPremium: 0,
+    gradePremium: 'rookie',
     authShowPass: false,
     whatsappVipUrl: '',
-    vipTarifLibelle: 'VIP Zanalyze',
+    vipTarifLibelle: 'Premium Zanalyze',
     sheetVip: false,
     cacheBanner: false,
     cacheLabel: '',
@@ -503,6 +506,12 @@ function zanalyz() {
     chargementJour: false,
     partageMsg: '',
     partageBusy: false,
+    jourPasseCompos: false,
+    classement: [],
+    classementMoi: null,
+    classementChargement: false,
+    salonOnglet: 'chat',
+    pronoBusy: false,
     peutInstaller: false,
     installePWA: false,
     installHint: '',
@@ -540,20 +549,23 @@ function zanalyz() {
       return this.categorie === 'visiteur' || !this.authentifie;
     },
     get peutVoter() {
-      return this.authentifie && (this.categorie === 'membre' || this.categorie === 'vip');
+      return this.authentifie && (this.categorie === 'membre' || this.categorie === 'premium' || this.estVip);
     },
     get peutCompos() {
       return this.peutVip;
     },
     get peutVip() {
-      return this.authentifie && (this.categorie === 'vip' || this.estVip);
+      return this.authentifie && (this.categorie === 'premium' || this.estVip);
+    },
+    get peutBilanComplet() {
+      return !!this.estAdmin || !!this.peutVip;
     },
     get libCategorie() {
       return {
         visiteur: 'Visiteur',
         membre: 'Membre',
-        vip: 'VIP',
-        premium: 'VIP',
+        premium: 'Premium',
+        vip: 'Premium',
       }[this.categorie] || 'Visiteur';
     },
     iconCategorie(cat) {
@@ -568,9 +580,12 @@ function zanalyz() {
         this.authentifie = !!(data && data.authentifie);
         this.username = data && data.username;
         this.categorie = (data && data.categorie) || (this.authentifie ? 'membre' : 'visiteur');
-        this.estVip = !!(data && data.est_vip) || this.categorie === 'vip';
+        this.estVip = !!(data && (data.est_premium || data.est_vip)) || this.categorie === 'premium';
+        this.estAdmin = !!(data && data.est_admin);
+        this.pointsPremium = (data && data.points_premium) || 0;
+        this.gradePremium = (data && data.grade_premium) || 'rookie';
         this.whatsappVipUrl = (data && data.whatsapp_vip_url) || '';
-        this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'VIP Zanalyze';
+        this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'Premium Zanalyze';
         if (data && data.version_moteur) this.moteur = data.version_moteur;
         this.demarrerUnreadPoll();
       } catch (_) { /* hors ligne */ }
@@ -762,7 +777,7 @@ function zanalyz() {
     ouvrirVipGate(motif) {
       if (!this.authentifie) {
         this.ouvrirAuth(
-          'Connecte-toi ou crée un compte pour demander le VIP via WhatsApp.',
+          'Connecte-toi ou crée un compte pour demander Premium via WhatsApp.',
           () => this.ouvrirVipGate(motif),
         );
         return;
@@ -901,9 +916,11 @@ function zanalyz() {
     optionsApercu(fiche) {
       if (!fiche || !fiche.analyse) return [];
       const ordre = { prudente: 0, recommandee: 1, equilibree: 2, audacieuse: 3, filet: 4 };
-      return (fiche.analyse.options || [])
-        .filter((o) => o.niveau in ordre)
-        .sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
+      let opts = (fiche.analyse.options || []).filter((o) => o.niveau in ordre);
+      if (fiche.statut === 'termine' && !this.peutBilanComplet) {
+        opts = opts.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
+      }
+      return opts.sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
     },
 
     onLogoError(ev) {
@@ -1018,10 +1035,13 @@ function zanalyz() {
     },
 
     tipsHisto(m) {
-      const ordre = { prudente: 0, recommandee: 1, filet: 2 };
-      return (m.options || [])
-        .filter((o) => o.niveau === 'prudente' || o.niveau === 'recommandee' || o.niveau === 'filet')
-        .sort((a, b) => (ordre[a.niveau] ?? 9) - (ordre[b.niveau] ?? 9));
+      const ordre = { prudente: 0, recommandee: 1, filet: 2, equilibree: 3, audacieuse: 4 };
+      let opts = (m.options || []).filter((o) => o.niveau in ordre);
+      // Non-admin : uniquement prudent + sécurité sur les matchs passés.
+      if (m.statut === 'termine' && !this.peutBilanComplet) {
+        opts = opts.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
+      }
+      return opts.sort((a, b) => (ordre[a.niveau] ?? 9) - (ordre[b.niveau] ?? 9));
     },
 
     get matchsHistoFiltres() {
@@ -1208,9 +1228,11 @@ function zanalyz() {
     get recoFiche() {
       if (!this.fiche || !this.fiche.analyse) return [];
       const ordre = { prudente: 0, recommandee: 1, equilibree: 2, audacieuse: 3, filet: 4 };
-      return this.fiche.analyse.options
-        .filter((o) => o.niveau in ordre)
-        .sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
+      let opts = this.fiche.analyse.options.filter((o) => o.niveau in ordre);
+      if (this.fiche.statut === 'termine' && !this.peutBilanComplet && this.fiche.bilan_complet === false) {
+        opts = opts.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
+      }
+      return opts.sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
     },
 
     get filetFiche() {
@@ -1280,6 +1302,53 @@ function zanalyz() {
     },
     motResultat(r) {
       return { gagne: 'Gagné', perdu: 'Perdu', attente: 'En attente', annule: 'Annulé' }[r] || r;
+    },
+    libGrade(code) {
+      return {
+        mougou: 'Mougou',
+        zanalyste: 'Zanalyste',
+        ndoss: 'Ndoss',
+        boss: 'Boss',
+        // anciens codes (compat affichage)
+        rookie: 'Mougou',
+        analyste: 'Zanalyste',
+        stratege: 'Ndoss',
+        oracle: 'Boss',
+      }[code] || 'Mougou';
+    },
+    async poserPronostic(choix) {
+      if (!this.fiche || this.fiche.statut !== 'a_venir' || !this.peutVip) return;
+      this.pronoBusy = true;
+      try {
+        const res = await fetch('/api/v1/matchs/' + this.fiche.id + '/pronostic/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRFToken': csrf(),
+          },
+          body: JSON.stringify({ choix }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.fiche.mon_pronostic = data;
+        }
+      } finally {
+        this.pronoBusy = false;
+      }
+    },
+    async chargerClassement() {
+      this.classementChargement = true;
+      const { data, ok } = await getJSON('/api/v1/classement/');
+      this.classementChargement = false;
+      if (!ok) return;
+      this.classement = (data && data.results) || [];
+      this.classementMoi = (data && data.moi) || null;
+      if (this.classementMoi) {
+        this.pointsPremium = this.classementMoi.points;
+        this.gradePremium = this.classementMoi.grade;
+      }
     },
     fmtConsensus(o) {
       if (!o || o.pct_likes == null) return '—';
@@ -1545,7 +1614,8 @@ function zanalyz() {
           this.authentifie = true;
           this.username = data.username;
           this.categorie = data.categorie || 'membre';
-          this.estVip = !!(data.est_vip) || this.categorie === 'vip';
+          this.estVip = !!(data.est_premium || data.est_vip) || this.categorie === 'premium';
+          this.estAdmin = !!(data.est_admin);
           this.authPass = '';
           this.authErr = '';
           this.authAcceptCgu = false;
@@ -1657,8 +1727,11 @@ function zanalyz() {
       this.jourDate = jour;
       this.chargementJour = true;
       this.predictionsJour = [];
+      const auj = this.dateAujourdhui();
+      const passe = jour < auj;
+      this.jourPasseCompos = passe;
       const q = new URLSearchParams();
-      q.set('statut', 'a_venir,en_cours');
+      q.set('statut', passe ? 'termine' : 'a_venir,en_cours');
       q.set('page_size', '50');
       q.set('depuis', jour);
       q.set('jusqu_a', jour);
@@ -1669,13 +1742,16 @@ function zanalyz() {
       const list = (data && data.results) || [];
       this.predictionsJour = list
         .map((m) => {
-          const options = (m.options || [])
+          let options = (m.options || [])
             .filter((o) => (
               o.niveau === 'prudente'
               || o.niveau === 'recommandee'
               || o.niveau === 'filet'
             ))
             .sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
+          if (passe && !this.peutBilanComplet) {
+            options = options.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
+          }
           const prudente = options.find((o) => o.niveau === 'prudente') || null;
           const recommandee = options.find((o) => o.niveau === 'recommandee') || null;
           const filet = options.find((o) => o.niveau === 'filet') || null;
@@ -1685,6 +1761,8 @@ function zanalyz() {
             domicile: m.domicile,
             exterieur: m.exterieur,
             coup_denvoi: m.coup_denvoi,
+            statut: m.statut,
+            score: m.score,
             options,
             prudente,
             recommandee,
@@ -1699,13 +1777,21 @@ function zanalyz() {
       this.predictionsJour.forEach((m) => {
         lignes.push(
           (m.competition && m.competition.code ? m.competition.code + ' · ' : '')
-          + m.domicile.nom_court + ' – ' + m.exterieur.nom_court,
+          + m.domicile.nom_court + ' – ' + m.exterieur.nom_court
+          + (m.score ? ' (' + m.score + ')' : ''),
         );
         m.options.forEach((o) => {
-          lignes.push(
-            '  ' + this.libNiveau(o.niveau) + ' : ' + o.libelle
-            + ' (' + this.fmtPct(o.probabilite) + ')',
-          );
+          if (this.jourPasseCompos) {
+            lignes.push(
+              '  ' + this.libNiveau(o.niveau) + ' : ' + o.libelle
+              + ' → ' + this.libResultatTip(o),
+            );
+          } else {
+            lignes.push(
+              '  ' + this.libNiveau(o.niveau) + ' : ' + o.libelle
+              + ' (' + this.fmtPct(o.probabilite) + ')',
+            );
+          }
         });
         lignes.push('');
       });
@@ -1717,16 +1803,23 @@ function zanalyz() {
       return this.predictionsJour.map((m) => ({
         header: (m.competition && m.competition.code ? m.competition.code + ' | ' : '')
           + m.domicile.nom_court + ' - ' + m.exterieur.nom_court
+          + (m.score ? '  ' + m.score : '')
           + '  (' + this.dateHeure(m.coup_denvoi) + ')',
         lines: [
           m.prudente
-            ? 'Prudent : ' + m.prudente.libelle + '  ·  ' + this.fmtPct(m.prudente.probabilite)
+            ? ('Prudent : ' + m.prudente.libelle + (this.jourPasseCompos
+              ? '  → ' + this.libResultatTip(m.prudente)
+              : '  ·  ' + this.fmtPct(m.prudente.probabilite)))
             : null,
           m.recommandee
-            ? 'Recommande : ' + m.recommandee.libelle + '  ·  ' + this.fmtPct(m.recommandee.probabilite)
+            ? ('Recommande : ' + m.recommandee.libelle + (this.jourPasseCompos
+              ? '  → ' + this.libResultatTip(m.recommandee)
+              : '  ·  ' + this.fmtPct(m.recommandee.probabilite)))
             : null,
           m.filet
-            ? 'Securite : ' + m.filet.libelle + '  ·  ' + this.fmtPct(m.filet.probabilite)
+            ? ('Securite : ' + m.filet.libelle + (this.jourPasseCompos
+              ? '  → ' + this.libResultatTip(m.filet)
+              : '  ·  ' + this.fmtPct(m.filet.probabilite)))
             : null,
         ].filter(Boolean),
       }));
@@ -1735,7 +1828,9 @@ function zanalyz() {
     async partagerPredictionsJour() {
       this.partageMsg = '';
       this.partageBusy = true;
-      const titre = 'Zanalyze — Nos Zanalyze · ' + fmtJour(this.jourDate + 'T12:00:00');
+      const titre = this.jourPasseCompos
+        ? ('Zanalyze — Bilans · ' + fmtJour(this.jourDate + 'T12:00:00'))
+        : ('Zanalyze — Nos Zanalyze · ' + fmtJour(this.jourDate + 'T12:00:00'));
       const text = [
         titre,
         'Voici notre sélection du jour, tirée de notre moteur de prédiction Zanalyze',
@@ -1979,7 +2074,7 @@ function zanalyz() {
         const { data, ok, status } = await getJSON(url);
         if (status === 401 || status === 403) {
           if (data && data.code === 'vip_required') {
-            this.chatErr = 'Salon VIP réservé aux comptes VIP.';
+            this.chatErr = 'Salon Premium réservé aux comptes Premium.';
           }
           this.stopChatPoll();
           return;

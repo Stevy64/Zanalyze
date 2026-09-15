@@ -1,6 +1,7 @@
 from django.utils import timezone
 
 from paris.evaluation import evaluer
+from paris.gamification import regler_pronostics_match
 
 
 def regler_match(match, maintenant=None):
@@ -10,6 +11,7 @@ def regler_match(match, maintenant=None):
     if match.buts_dom is None or match.buts_ext is None:
         return 0
     if not hasattr(match, 'analyse'):
+        regler_pronostics_match(match)
         return 0
     maintenant = maintenant or timezone.now()
     n = 0
@@ -28,4 +30,5 @@ def regler_match(match, maintenant=None):
         opt.regle_le = maintenant
         opt.save(update_fields=['resultat', 'regle_le'])
         n += 1
+    regler_pronostics_match(match)
     return n

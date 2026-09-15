@@ -64,26 +64,27 @@ Contexte terrain (forme / H2H / absents) — plus lent, optionnel :
 make sync-full-dev
 ```
 
-## 3. Comptes & VIP
+## 3. Comptes & Premium
 
 1. Créer un superuser (`make superuser-dev`).  
-2. Dans l’admin : utilisateurs → profil → activer VIP (durée / expiration).  
-3. Réglages site : numéro WhatsApp + message pour la demande VIP.
+2. Dans l’admin : utilisateurs → profil → activer Premium (durée / expiration).  
+3. Réglages site : numéro WhatsApp + message pour la demande Premium.
 
 Rôles côté app :
 
 | Catégorie | Accès |
 |-----------|--------|
 | Visiteur | Liste matchs, tips sans justifs |
-| Membre | + votes / propositions |
-| VIP | + justifications, Salon VIP |
+| Membre | + votes / propositions ; bilans passés = Prudent + Sécurité (OK/KO) |
+| Premium | + justifications, Nos Zanalyze, Salon Premium, bilans complets, pronostics / classement |
+| Admin | staff Django + mêmes droits Premium |
 
 ## 4. Pages utiles
 
 | URL | Rôle |
 |-----|------|
 | `/` | Matchs du jour |
-| `/salon` | Chat VIP |
+| `/salon` | Chat Premium + classement |
 | `/admin/` | Back-office |
 | `/health/` | Sonde load-balancer |
 | `:8001/health` | Sonde moteur (Docker) |

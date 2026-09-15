@@ -91,10 +91,11 @@ Détail variables : `.env.example` et [docs/architecture.md](docs/architecture.m
 ## Fonctionnalités produit
 
 - Matchs du jour / filtre compétition · tips **Prudente / Équilibrée / Audacieuse** + filet  
-- Fiche club (forme, classement, récents) · justifications VIP  
-- Salon VIP (messages + images, rétention 24 h, présence en ligne)  
+- Fiche club (forme, classement, récents) · justifications Premium  
+- Salon Premium (messages + images, rétention 24 h, présence en ligne)  
+- Pronostics Premium 1X2 · points / grades · classement  
 - Propositions utilisateurs + % de votes par scénario  
-- Admin Django (VIP, WhatsApp, sync)
+- Admin Django (Premium, WhatsApp, sync)
 
 Moteur d’analyse : [docs/moteur-v31.md](docs/moteur-v31.md).
 

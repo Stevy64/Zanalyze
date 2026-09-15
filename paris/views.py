@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from paris.models import (
-    Competition, Equipe, Match, MessageChat, Option, Profil,
+    Competition, Equipe, Match, MessageChat, Option, Profil, PronosticPremium,
     PropositionParis, ReglageSite, Vote, VoteOption,
 )
 from paris.moteur import VERSION_MOTEUR
@@ -28,11 +28,13 @@ from paris.roles import est_vip, payload_auth
 from paris.serializers import (
     AuthSerializer,
     CompetitionSerializer,
+    LoginSerializer,
     MatchDetailSerializer,
     MatchListeSerializer,
     MessageChatSerializer,
     MessageCreateSerializer,
     NIVEAUX_COMPOS,
+    PronosticCreateSerializer,
     PropositionCreateSerializer,
     PropositionSerializer,
     ResultatSerializer,
@@ -52,7 +54,7 @@ def _payload_vip_public():
     cfg = ReglageSite.get_solo()
     return {
         'whatsapp_vip_url': cfg.lien_whatsapp_vip(),
-        'vip_tarif_libelle': cfg.vip_tarif_libelle or 'VIP Zanalyze',
+        'vip_tarif_libelle': cfg.vip_tarif_libelle or 'Premium Zanalyze',
     }
 
 
@@ -335,18 +337,20 @@ class Login(APIView):
     authentication_classes = []
 
     def post(self, request):
-        ser = AuthSerializer(data=request.data)
+        ser = LoginSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
         # Login insensible à la casse du pseudo.
         existing = User.objects.filter(username__iexact=data['username'].strip()).first()
         user = authenticate(
             request,
-            username=existing.username if existing else data['username'],
+            username=existing.username if existing else data['username'].strip(),
             password=data['password'],
         )
         if user is None:
             return Response({'detail': 'Identifiants incorrects.'}, status=400)
+        if not user.is_active:
+            return Response({'detail': 'Compte désactivé.'}, status=400)
         login(request, user)
         return Response(_payload_auth(user))
 
@@ -357,18 +361,18 @@ class Logout(APIView):
 
     def post(self, request):
         logout(request)
-        return Response({'authentifie': False, 'username': None, 'categorie': 'visiteur', 'est_vip': False})
+        return Response({'authentifie': False, 'username': None, 'categorie': 'visiteur', 'est_vip': False, 'est_premium': False, 'est_admin': False})
 
 
 class ChatListCreate(APIView):
-    """Salon VIP : réservé aux comptes VIP, purge 24 h."""
+    """Salon Premium : réservé aux comptes Premium, purge 24 h."""
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get(self, request):
         if not est_vip(request.user):
             return Response(
-                {'detail': 'Salon VIP réservé aux comptes VIP.', 'code': 'vip_required'},
+                {'detail': 'Salon Premium réservé aux comptes Premium.', 'code': 'vip_required'},
                 status=403,
             )
         purger_messages_expires()
@@ -394,7 +398,7 @@ class ChatListCreate(APIView):
     def post(self, request):
         if not est_vip(request.user):
             return Response(
-                {'detail': 'Salon VIP réservé aux comptes VIP.', 'code': 'vip_required'},
+                {'detail': 'Salon Premium réservé aux comptes Premium.', 'code': 'vip_required'},
                 status=403,
             )
         purger_messages_expires()
@@ -702,6 +706,73 @@ class EquipeInfos(APIView):
         data.setdefault('recents', [])
         data.setdefault('pays', local.get('pays'))
         return Response(data)
+
+
+class PronosticMatch(APIView):
+    """Pronostic 1X2 Premium avant coup d’envoi."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not est_vip(request.user):
+            return Response(
+                {'detail': 'Pronostics réservés aux comptes Premium.', 'code': 'vip_required'},
+                status=403,
+            )
+        match = get_object_or_404(Match, pk=pk)
+        if match.statut != 'a_venir':
+            return Response({'detail': 'Pronostic possible uniquement avant le match.'}, status=400)
+        if match.coup_denvoi and match.coup_denvoi <= timezone.now():
+            return Response({'detail': 'Coup d’envoi déjà passé.'}, status=400)
+        ser = PronosticCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        prono, _created = PronosticPremium.objects.update_or_create(
+            match=match,
+            user=request.user,
+            defaults={'choix': ser.validated_data['choix'], 'points': None, 'gagne': None},
+        )
+        return Response({
+            'choix': prono.choix,
+            'points': prono.points,
+            'gagne': prono.gagne,
+        })
+
+
+class ClassementPremium(APIView):
+    """Classement des points Premium (saison)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from paris.gamification import grade_pour, libelle_grade
+
+        rows = (
+            Profil.objects
+            .filter(categorie='premium', points_premium__gt=0)
+            .select_related('user')
+            .order_by('-points_premium', 'user__username')[:30]
+        )
+        results = []
+        for i, p in enumerate(rows, start=1):
+            code = grade_pour(int(p.points_premium or 0))
+            results.append({
+                'rang': i,
+                'username': p.user.username,
+                'points': int(p.points_premium or 0),
+                'grade': code,
+                'grade_libelle': libelle_grade(code),
+            })
+        moi = None
+        if request.user and request.user.is_authenticated:
+            profil, _ = Profil.objects.get_or_create(user=request.user)
+            pts = int(profil.points_premium or 0)
+            code = grade_pour(pts)
+            moi = {
+                'username': request.user.username,
+                'points': pts,
+                'grade': code,
+                'grade_libelle': libelle_grade(code),
+                'est_premium': est_vip(request.user),
+            }
+        return Response({'results': results, 'moi': moi})
 
 
 @ensure_csrf_cookie

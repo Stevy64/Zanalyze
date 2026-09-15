@@ -4,7 +4,7 @@ from django.utils import timezone
 from paris.dashboard import build_dashboard_stats
 from paris.models import (
     Analyse, Competition, Contexte, Cote, Equipe, Match, MessageChat, Option,
-    Profil, PropositionParis, ReglageSite, Vote, VoteOption,
+    Profil, PronosticPremium, PropositionParis, ReglageSite, Vote, VoteOption,
 )
 
 # Dashboard activité sur l’index admin.
@@ -187,7 +187,7 @@ class VoteOptionAdmin(admin.ModelAdmin):
 @admin.register(Profil)
 class ProfilAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'badge_categorie', 'expire_court', 'note_admin',
+        'user', 'badge_categorie', 'points_premium', 'expire_court', 'note_admin',
     )
     list_filter = ('categorie',)
     search_fields = ('user__username', 'note_admin')
@@ -198,11 +198,12 @@ class ProfilAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {
             'fields': (
-                'user', 'categorie', 'vip_depuis', 'vip_expire_le', 'note_admin',
+                'user', 'categorie', 'points_premium',
+                'vip_depuis', 'vip_expire_le', 'note_admin',
             ),
             'description': (
-                'À l’octroi, l’abonnement VIP dure 1 mois. '
-                'Tu peux prolonger via l’action « Prolonger VIP (+1 mois) » '
+                'À l’octroi, l’abonnement Premium dure 1 mois. '
+                'Tu peux prolonger via l’action « Prolonger Premium (+1 mois) » '
                 'ou en modifiant « VIP expire le ».'
             ),
         }),
@@ -215,7 +216,7 @@ class ProfilAdmin(admin.ModelAdmin):
             return format_html(
                 '<span style="display:inline-flex;align-items:center;padding:3px 10px;'
                 'border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;'
-                'background:#fff4ec;color:#e8631c;border:1px solid #ffd7bf;">VIP</span>',
+                'background:#fff4ec;color:#e8631c;border:1px solid #ffd7bf;">Premium</span>',
             )
         if obj.categorie in ('vip', 'premium'):
             return format_html(
@@ -237,6 +238,7 @@ class ProfilAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if obj.categorie in ('vip', 'premium'):
+            obj.categorie = 'premium'
             if not obj.vip_depuis:
                 obj.vip_depuis = timezone.now()
             if not obj.vip_expire_le:
@@ -244,7 +246,7 @@ class ProfilAdmin(admin.ModelAdmin):
                 obj.vip_expire_le = ajouter_mois(obj.vip_depuis or timezone.now(), 1)
         super().save_model(request, obj, form, change)
 
-    @admin.action(description='Octroyer VIP (1 mois à partir de maintenant)')
+    @admin.action(description='Octroyer Premium (1 mois à partir de maintenant)')
     def octroyer_vip(self, request, queryset):
         n = 0
         for profil in queryset:
@@ -253,11 +255,11 @@ class ProfilAdmin(admin.ModelAdmin):
             n += 1
         self.message_user(
             request,
-            f'{n} compte(s) VIP activé(s) pour 1 mois.',
+            f'{n} compte(s) Premium activé(s) pour 1 mois.',
             messages.SUCCESS,
         )
 
-    @admin.action(description='Prolonger VIP (+1 mois)')
+    @admin.action(description='Prolonger Premium (+1 mois)')
     def prolonger_vip(self, request, queryset):
         n = 0
         for profil in queryset:
@@ -270,7 +272,7 @@ class ProfilAdmin(admin.ModelAdmin):
             messages.SUCCESS,
         )
 
-    @admin.action(description='Retirer le statut VIP → Membre')
+    @admin.action(description='Retirer le statut Premium → Membre')
     def retirer_vip(self, request, queryset):
         n = 0
         for profil in queryset:
@@ -294,6 +296,15 @@ class ReglageSiteAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(PronosticPremium)
+class PronosticPremiumAdmin(admin.ModelAdmin):
+    list_display = ('user', 'match', 'choix', 'gagne', 'points', 'created_at')
+    list_filter = ('choix', 'gagne')
+    search_fields = ('user__username',)
+    autocomplete_fields = ('user', 'match')
+    readonly_fields = ('created_at',)
 
 
 @admin.register(MessageChat)

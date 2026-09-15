@@ -3130,6 +3130,49 @@ button.compos-opt:active {
 .bilan-chip.ok { background: #dcfce7; color: #166534; }
 .bilan-chip.ko { background: #fee2e2; color: #991b1b; }
 .bilan-chip.wait { background: #fef3c7; color: #92400e; }
+.premium-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.prono-box {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(11, 23, 40, 0.04);
+}
+.prono-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.salon-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 4px 10px;
+}
+.classement-wrap { padding: 4px 2px 16px; }
+.classement-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.classement-liste li {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(11, 23, 40, 0.04);
+}
+.cl-rang { font-weight: 800; color: #64748b; }
+.cl-grade { font-size: 0.8rem; color: #92400e; }
+.cl-pts { font-weight: 700; }
 .tag-score {
   background: #0b1728 !important;
   color: #fff !important;

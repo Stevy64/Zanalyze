@@ -19,10 +19,10 @@ class ParisConfig(AppConfig):
             profil, _ = Profil.objects.get_or_create(user=instance)
             if not (instance.is_superuser or instance.is_staff):
                 return
-            # Admin = VIP permanent (sans date d'expiration).
+            # Admin / staff = Premium permanent (sans date d'expiration).
             dirty = False
-            if profil.categorie not in ('vip', 'premium'):
-                profil.categorie = 'vip'
+            if profil.categorie != 'premium':
+                profil.categorie = 'premium'
                 dirty = True
             if not profil.vip_depuis:
                 profil.vip_depuis = timezone.now()

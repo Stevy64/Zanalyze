@@ -10,6 +10,8 @@ urlpatterns = [
     path('matchs/<int:pk>/propositions/', views.PropositionListCreate.as_view()),
     path('matchs/<int:pk>/propositions/<int:prop_id>/vote/', views.PropositionVote.as_view()),
     path('matchs/<int:pk>/options/<int:opt_id>/vote/', views.OptionVote.as_view()),
+    path('matchs/<int:pk>/pronostic/', views.PronosticMatch.as_view()),
+    path('classement/', views.ClassementPremium.as_view()),
     path('equipes/<int:pk>/logo/', views.EquipeLogo.as_view()),
     path('equipes/<int:pk>/infos/', views.EquipeInfos.as_view()),
     path('historique/', views.Verification.as_view()),

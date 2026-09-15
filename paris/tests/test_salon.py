@@ -21,13 +21,13 @@ class RolesVipTests(TestCase):
         profil, _ = Profil.objects.get_or_create(user=u)
         profil.activer_vip(mois=1)
         profil.save()
-        self.assertEqual(categorie_user(u), 'vip')
+        self.assertEqual(categorie_user(u), 'premium')
         self.assertTrue(est_vip(u))
 
         profil.categorie = 'premium'
         profil.vip_expire_le = timezone.now() + timedelta(days=10)
         profil.save(update_fields=['categorie', 'vip_expire_le'])
-        self.assertEqual(categorie_user(u), 'vip')
+        self.assertEqual(categorie_user(u), 'premium')
         self.assertTrue(est_vip(u))
 
         profil.categorie = 'membre'
@@ -61,17 +61,17 @@ class RolesVipTests(TestCase):
         self.assertEqual(profil.vip_expire_le, ajouter_mois(fin1, 1))
         self.assertTrue(est_vip(u))
 
-    def test_staff_et_superuser_sont_vip(self):
+    def test_staff_et_superuser_sont_premium(self):
         staff = User.objects.create_user('adminstaff', password='motdepasse123', is_staff=True)
-        self.assertEqual(categorie_user(staff), 'vip')
+        self.assertEqual(categorie_user(staff), 'premium')
         self.assertTrue(est_vip(staff))
-        self.assertTrue(payload_auth(staff)['est_vip'])
-        profil = Profil.objects.get(user=staff)
-        self.assertEqual(profil.categorie, 'vip')
-        self.assertIsNone(profil.vip_expire_le)
+        payload = payload_auth(staff)
+        self.assertTrue(payload['est_vip'])
+        self.assertTrue(payload['est_premium'])
+        self.assertTrue(payload['est_admin'])
 
         su = User.objects.create_superuser('rootadmin', 'root@example.com', 'motdepasse123')
-        self.assertEqual(categorie_user(su), 'vip')
+        self.assertEqual(categorie_user(su), 'premium')
         self.assertTrue(est_vip(su))
 
 

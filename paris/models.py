@@ -246,11 +246,10 @@ class VoteOption(models.Model):
 
 
 class Profil(models.Model):
-    """Catégorie compte : membre (défaut) ou VIP (justifs + Salon VIP)."""
+    """Catégorie compte : membre (défaut) ou Premium (justifs + Salon + Nos Zanalyze)."""
     CATEGORIES = [
         ('membre', 'Membre'),
-        ('vip', 'VIP'),
-        ('premium', 'Premium'),  # legacy = mêmes droits que VIP
+        ('premium', 'Premium'),
     ]
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -262,11 +261,15 @@ class Profil(models.Model):
     )
     vip_depuis = models.DateTimeField(
         null=True, blank=True,
-        help_text='Date de la dernière activation VIP.',
+        help_text='Date de la dernière activation Premium.',
     )
     vip_expire_le = models.DateTimeField(
         null=True, blank=True, db_index=True,
         help_text='Fin d’abonnement (en général +1 mois après validation). Editable pour prolonger.',
+    )
+    points_premium = models.PositiveIntegerField(
+        default=0,
+        help_text='Points de la saison (pronostics Premium).',
     )
     note_admin = models.CharField(max_length=200, blank=True)
 
@@ -283,17 +286,18 @@ class Profil(models.Model):
 
     @property
     def abonnement_vip_actif(self) -> bool:
-        if self.categorie not in ('vip', 'premium'):
+        # 'vip' legacy encore possible avant migration data.
+        if self.categorie not in ('premium', 'vip'):
             return False
         if self.vip_expire_le is None:
             return True  # legacy sans date → actif jusqu’à retrait
         return self.vip_expire_le > timezone.now()
 
     def activer_vip(self, mois: int = 1) -> None:
-        """Active (ou renouvelle) le VIP pour N mois à partir de maintenant."""
+        """Active (ou renouvelle) le Premium pour N mois à partir de maintenant."""
         from paris.vip import debut_abonnement
         debut, fin = debut_abonnement(mois)
-        self.categorie = 'vip'
+        self.categorie = 'premium'
         self.vip_depuis = debut
         self.vip_expire_le = fin
 
@@ -301,7 +305,7 @@ class Profil(models.Model):
         """Ajoute N mois à la fin d’abonnement (ou depuis maintenant si expiré)."""
         from paris.vip import nouvelle_expiration
         maintenant = timezone.now()
-        self.categorie = 'vip'
+        self.categorie = 'premium'
         if not self.vip_depuis:
             self.vip_depuis = maintenant
         self.vip_expire_le = nouvelle_expiration(self.vip_expire_le, mois)
@@ -311,15 +315,46 @@ class Profil(models.Model):
         self.vip_expire_le = timezone.now()
 
 
+class PronosticPremium(models.Model):
+    """Pronostic 1X2 d’un membre Premium (gamification / classement)."""
+    CHOIX = [
+        ('1', 'Domicile'),
+        ('N', 'Nul'),
+        ('2', 'Extérieur'),
+    ]
+    match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name='pronostics')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='pronostics',
+    )
+    choix = models.CharField(max_length=1, choices=CHOIX)
+    points = models.PositiveSmallIntegerField(null=True, blank=True)
+    gagne = models.BooleanField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Pronostic Premium'
+        verbose_name_plural = 'Pronostics Premium'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['match', 'user'],
+                name='prono_unique_user_match',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user} → {self.match_id} ({self.choix})'
+
+
 class ReglageSite(models.Model):
-    """Réglages globaux (singleton) — WhatsApp VIP, etc."""
+    """Réglages globaux (singleton) — WhatsApp Premium, etc."""
     whatsapp_phone = models.CharField(
         max_length=32, blank=True,
         help_text='Numéro international sans + (ex. 33612345678).',
     )
     whatsapp_message = models.CharField(
         max_length=300, blank=True,
-        default='Bonjour, je souhaite devenir VIP sur Zanalyze.',
+        default='Bonjour, je souhaite devenir Premium sur Zanalyze.',
         help_text='Message prérempli quand l’utilisateur ouvre WhatsApp.',
     )
     whatsapp_url = models.URLField(
@@ -327,8 +362,8 @@ class ReglageSite(models.Model):
         help_text='Lien WhatsApp complet (prioritaire si renseigné).',
     )
     vip_tarif_libelle = models.CharField(
-        max_length=120, blank=True, default='VIP Zanalyze',
-        help_text='Court libellé affiché sur le CTA (ex. « VIP — 4,99 € / mois »).',
+        max_length=120, blank=True, default='Premium Zanalyze',
+        help_text='Court libellé affiché sur le CTA (ex. « Premium — 4,99 € / mois »).',
     )
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -363,12 +398,12 @@ class ReglageSite(models.Model):
             )
         if not phone:
             return ''
-        msg = (self.whatsapp_message or 'Bonjour, je souhaite devenir VIP sur Zanalyze.').strip()
+        msg = (self.whatsapp_message or 'Bonjour, je souhaite devenir Premium sur Zanalyze.').strip()
         return f'https://wa.me/{phone}?text={quote(msg)}'
 
 
 class MessageChat(models.Model):
-    """Message du Salon VIP — purgé automatiquement après 24 h."""
+    """Message du Salon Premium — purgé automatiquement après 24 h."""
     auteur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -380,8 +415,8 @@ class MessageChat(models.Model):
 
     class Meta:
         ordering = ['created_at']
-        verbose_name = 'Message Salon VIP'
-        verbose_name_plural = 'Messages Salon VIP'
+        verbose_name = 'Message Salon Premium'
+        verbose_name_plural = 'Messages Salon Premium'
 
     def __str__(self):
         apercu = (self.texte or '').strip() or ('[image]' if self.image else '')
