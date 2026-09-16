@@ -7,6 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('paris', '0015_merge_premium_reglage'),
+        ('paris', '0015_merge_20260916_0524'),
     ]
 
     operations = [
