@@ -20,6 +20,7 @@ urlpatterns = [
     path('verification/detail/', views.VerificationDetail.as_view()),
     path('salon/', views.ChatListCreate.as_view()),
     path('info/', views.Info.as_view()),
+    path('sync/engine/', views.SyncEngine.as_view()),
     path('auth/register/', views.Register.as_view()),
     path('auth/login/', views.Login.as_view()),
     path('auth/logout/', views.Logout.as_view()),

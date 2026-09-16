@@ -1,8 +1,8 @@
-const CACHE = 'paris-v82';
+const CACHE = 'paris-v83';
 const PRECACHE = [
   '/manifest.webmanifest',
-  '/static/css/app.css?v=82',
-  '/static/js/app.js?v=82',
+  '/static/css/app.css?v=83',
+  '/static/js/app.js?v=83',
   '/static/vendor/alpine.min.js?v=60',
   '/static/img/hero-accueil.jpg',
   '/static/brand/zanalyze-logo.png',
@@ -54,19 +54,25 @@ async function staleWhileRevalidate(request) {
   }).catch(() => cached);
   if (cached) {
     network.catch(() => {});
-    return cached;
+    return withCacheFlag(cached);
   }
   return network;
 }
 
-async function networkFirst(request, { flagCache } = {}) {
+async function networkFirst(request, { flagCache, timeoutMs = 4500 } = {}) {
   const cache = await caches.open(CACHE);
+  const cached = await cache.match(request);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(request);
-    if (res && res.ok) cache.put(request, res.clone());
+    const res = await fetch(request, { signal: controller.signal });
+    clearTimeout(timer);
+    if (res && res.ok) {
+      try { cache.put(request, res.clone()); } catch (_) { /* quota */ }
+    }
     return res;
   } catch (err) {
-    const cached = await cache.match(request);
+    clearTimeout(timer);
     if (cached) return flagCache ? withCacheFlag(cached) : cached;
     throw err;
   }
@@ -95,13 +101,23 @@ self.addEventListener('fetch', (event) => {
   // Ne pas intercepter le SW (évite les mises à jour bloquées).
   if (path === '/sw.js') return;
 
+  // Sync Engine : toujours réseau (pas de cache SW).
+  if (path.startsWith('/api/v1/sync/')) {
+    event.respondWith(fetch(req).catch(() => new Response(
+      JSON.stringify({ ok: false, reason: 'offline' }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } },
+    )));
+    return;
+  }
+
   if (path.startsWith('/api/')) {
-    event.respondWith(networkFirst(req, { flagCache: true }));
+    // API : réseau rapide, sinon cache (mode hors-ligne / latence).
+    event.respondWith(networkFirst(req, { flagCache: true, timeoutMs: 5000 }));
     return;
   }
 
   if (req.mode === 'navigate' || isAppShell(path)) {
-    event.respondWith(networkFirst(req, { flagCache: false }));
+    event.respondWith(networkFirst(req, { flagCache: false, timeoutMs: 6000 }));
     return;
   }
 

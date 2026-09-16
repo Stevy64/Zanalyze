@@ -4,6 +4,8 @@ const LS_MASQUEES = 'zanalyz.masquees';
 const LS_REFRESH = 'zanalyz.refresh';
 const LS_DATE = 'zanalyz.filtreDate';
 const LS_SALON_READ = 'zanalyz.salon.lastReadAt';
+const LS_MATCHS = 'zanalyz.matchs.cache';
+const LS_FICHE_PREFIX = 'zanalyz.fiche.';
 const SS_SCROLL = 'zanalyz.scroll';
 const TZ_APP = 'Europe/Paris';
 
@@ -201,6 +203,10 @@ const ICON_PATHS = {
   send: '<path d="M4 12 20 4l-6 16-2-6-6-2z"/>',
   image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
   'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+  flame: '<path d="M12 3c2 3 1 5-1 7 3 0 6 2 6 6a5 5 0 0 1-10 0c0-3 2-5 3-7-2 1-3 3-3 5a7 7 0 0 0 14 0c0-5-4-8-9-11z"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>',
+  percent: '<circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/><path d="M18 6 6 18"/>',
+  sparkles: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m6.5 6.5 2.5 2.5M15 15l2.5 2.5M17.5 6.5 15 9M9 15l-2.5 2.5"/>',
 };
 
 function icon(name, cls) {
@@ -314,14 +320,51 @@ function matchFiltreCompetition(m, filtre) {
   return true;
 }
 
-async function getJSON(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-    credentials: 'same-origin',
-  });
-  const fromCache = res.headers.get('X-SW-Cache') === '1';
-  const data = await res.json().catch(() => null);
-  return { data, fromCache, ok: res.ok, status: res.status };
+async function getJSON(url, { timeoutMs = 8000 } = {}) {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    if (timer) clearTimeout(timer);
+    const fromCache = res.headers.get('X-SW-Cache') === '1';
+    const data = await res.json().catch(() => null);
+    return { data, fromCache, ok: res.ok, status: res.status, offline: false };
+  } catch (_) {
+    if (timer) clearTimeout(timer);
+    return { data: null, fromCache: false, ok: false, status: 0, offline: true };
+  }
+}
+
+function lireCacheMatchs(cle) {
+  try {
+    const raw = localStorage.getItem(LS_MATCHS);
+    if (!raw) return null;
+    const bag = JSON.parse(raw);
+    const entry = bag && bag[cle];
+    if (!entry || !Array.isArray(entry.results)) return null;
+    return entry;
+  } catch (_) {
+    return null;
+  }
+}
+
+function ecrireCacheMatchs(cle, results) {
+  try {
+    let bag = {};
+    try { bag = JSON.parse(localStorage.getItem(LS_MATCHS) || '{}') || {}; } catch (_) { bag = {}; }
+    bag[cle] = { results, savedAt: new Date().toISOString() };
+    // Garde les 8 dernières clés pour limiter la taille.
+    const keys = Object.keys(bag);
+    if (keys.length > 8) {
+      keys.sort((a, b) => String((bag[a] && bag[a].savedAt) || '').localeCompare(String((bag[b] && bag[b].savedAt) || '')));
+      keys.slice(0, keys.length - 8).forEach((k) => { delete bag[k]; });
+    }
+    localStorage.setItem(LS_MATCHS, JSON.stringify(bag));
+  } catch (_) { /* quota / private mode */ }
 }
 
 function esc(s) {
@@ -417,10 +460,10 @@ function zanalyz() {
     filtreDate: (() => {
       const auj = dateLocaleISO(new Date());
       const saved = localStorage.getItem(LS_DATE) || '';
-      // Ne pas rester coincé sur une date passée (donne l’impression d’une vieille version).
-      if (!saved || saved < auj) {
-        localStorage.setItem(LS_DATE, auj);
-        return auj;
+      // Date passée en localStorage → on oublie (évite une liste vide « coincée »).
+      if (saved && saved < auj) {
+        localStorage.removeItem(LS_DATE);
+        return '';
       }
       return saved;
     })(),
@@ -454,6 +497,9 @@ function zanalyz() {
     sheetVip: false,
     cacheBanner: false,
     cacheLabel: '',
+    horsLigne: typeof navigator !== 'undefined' ? !navigator.onLine : false,
+    engineMeta: null,
+    syncBusy: false,
     dernierRafraichissement: localStorage.getItem(LS_REFRESH) ? fmtCache(localStorage.getItem(LS_REFRESH)) : '',
     swWaiting: false,
     _swReg: null,
@@ -527,9 +573,16 @@ function zanalyz() {
       if (!this.jourDate) this.jourDate = this.filtreDate || dateLocaleISO(new Date());
       window.addEventListener('popstate', () => this.lireRoute({ pop: true }));
       window.addEventListener('scroll', () => this.onScroll(), { passive: true });
+      window.addEventListener('online', () => {
+        this.horsLigne = false;
+        this.rafraichirDonnees(false);
+      });
+      window.addEventListener('offline', () => { this.horsLigne = true; });
       this.ecouterInstallPWA();
       this.enregistrerSW();
       await this.chargerInfo();
+      // Tire le snapshot Engine si périmé (ne bloque pas longtemps grâce au throttle serveur).
+      await this.syncEngine(false);
       await this.chargerCompetitions();
       await this.routeData();
       this.demarrerUnreadPoll();
@@ -585,7 +638,12 @@ function zanalyz() {
 
     async chargerInfo() {
       try {
-        const { data } = await getJSON('/api/v1/info/');
+        const { data, offline } = await getJSON('/api/v1/info/');
+        if (offline) {
+          this.horsLigne = true;
+          return;
+        }
+        this.horsLigne = false;
         this.authentifie = !!(data && data.authentifie);
         this.username = data && data.username;
         this.categorie = (data && data.categorie) || (this.authentifie ? 'membre' : 'visiteur');
@@ -598,8 +656,43 @@ function zanalyz() {
         this.whatsappVipUrl = (data && data.whatsapp_vip_url) || '';
         this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'Premium Zanalyze';
         if (data && data.version_moteur) this.moteur = data.version_moteur;
+        if (data && data.engine) this.engineMeta = data.engine;
         this.demarrerUnreadPoll();
       } catch (_) { /* hors ligne */ }
+    },
+
+    async syncEngine(force = false) {
+      if (this.syncBusy || this.horsLigne || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+        return { ok: false, skipped: true };
+      }
+      this.syncBusy = true;
+      try {
+        const res = await fetch('/api/v1/sync/engine/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRFToken': csrf(),
+          },
+          body: JSON.stringify({ force: !!force }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data && (data.exporte_le || data.importe_le)) this.engineMeta = data;
+        return data || { ok: res.ok };
+      } catch (_) {
+        this.horsLigne = true;
+        return { ok: false, reason: 'offline' };
+      } finally {
+        this.syncBusy = false;
+      }
+    },
+
+    async rafraichirDonnees(force = true) {
+      await this.syncEngine(force);
+      if (this.page === 'matchs') await this.chargerMatchs({ forceNetwork: true });
+      else if (this.page === 'fiche' && this._matchId) await this.chargerFiche(this._matchId);
+      else await this.routeData();
     },
 
     lireRoute(opts = {}) {
@@ -1005,38 +1098,59 @@ function zanalyz() {
     async chargerMatchs(opts = {}) {
       const token = ++this._matchReq;
       const filtreActif = this.filtre;
-      this.chargement = true;
-      this.matchs = [];
-      const q = new URLSearchParams();
-      const auj = this.dateAujourdhui();
-      const datePassee = !!(this.filtreDate && this.filtreDate < auj);
-      // Jour passé : afficher résultats + tips pour évaluer le moteur.
-      q.set('statut', datePassee ? 'termine,en_cours,a_venir,reporte' : 'a_venir,en_cours');
-      const modeFiltre = parseFiltre(filtreActif).mode;
-      q.set('page_size', modeFiltre === 'pays' || datePassee ? '120' : '50');
-      const apiComp = this.filtreApiCompetition();
-      if (apiComp) q.set('competition', apiComp);
-      const depuis = this.filtreDate || auj;
-      q.set('depuis', depuis);
-      if (this.filtreDate) q.set('jusqu_a', this.filtreDate);
-      const { data, fromCache } = await getJSON('/api/v1/matchs/?' + q.toString());
-      if (token !== this._matchReq) return;
-      this.noterCache(fromCache);
-      let list = (data && data.results) || [];
-      if (filtreActif) {
-        list = list.filter((m) => matchFiltreCompetition(m, filtreActif));
+      const garderListe = this.matchs && this.matchs.length;
+      this.chargement = !garderListe;
+      try {
+        const q = new URLSearchParams();
+        const auj = this.dateAujourdhui();
+        const datePassee = !!(this.filtreDate && this.filtreDate < auj);
+        // Jour passé : afficher résultats + tips pour évaluer le moteur.
+        q.set('statut', datePassee ? 'termine,en_cours,a_venir,reporte' : 'a_venir,en_cours');
+        const modeFiltre = parseFiltre(filtreActif).mode;
+        q.set('page_size', modeFiltre === 'pays' || datePassee ? '120' : '50');
+        const apiComp = this.filtreApiCompetition();
+        if (apiComp) q.set('competition', apiComp);
+        const depuis = this.filtreDate || auj;
+        q.set('depuis', depuis);
+        if (this.filtreDate) q.set('jusqu_a', this.filtreDate);
+        const cacheKey = q.toString() + '|f=' + (filtreActif || '');
+        const { data, fromCache, offline, ok } = await getJSON('/api/v1/matchs/?' + q.toString());
+        if (token !== this._matchReq) return;
+        if (offline || !ok || !data) {
+          this.horsLigne = offline || this.horsLigne;
+          const cached = lireCacheMatchs(cacheKey);
+          if (cached) {
+            this.matchs = cached.results;
+            this.cacheBanner = true;
+            this.cacheLabel = fmtCache(cached.savedAt);
+          } else if (!garderListe) {
+            this.matchs = [];
+          }
+          return;
+        }
+        this.horsLigne = false;
+        this.noterCache(fromCache);
+        let list = (data && data.results) || [];
+        if (filtreActif) {
+          list = list.filter((m) => matchFiltreCompetition(m, filtreActif));
+        }
+        if (this.filtreDate) {
+          list = list.filter((m) => dateLocaleISO(m.coup_denvoi) === this.filtreDate);
+        } else {
+          list = list.filter((m) => {
+            if (!(m.statut === 'a_venir' || m.statut === 'en_cours')) return false;
+            return dateLocaleISO(m.coup_denvoi) >= auj;
+          });
+        }
+        list.sort((a, b) => new Date(a.coup_denvoi) - new Date(b.coup_denvoi));
+        this.matchs = list;
+        ecrireCacheMatchs(cacheKey, list);
+      } catch (_) {
+        if (token !== this._matchReq) return;
+        if (!garderListe) this.matchs = [];
+      } finally {
+        if (token === this._matchReq) this.chargement = false;
       }
-      if (this.filtreDate) {
-        list = list.filter((m) => dateLocaleISO(m.coup_denvoi) === this.filtreDate);
-      } else {
-        list = list.filter((m) => {
-          if (!(m.statut === 'a_venir' || m.statut === 'en_cours')) return false;
-          return dateLocaleISO(m.coup_denvoi) >= auj;
-        });
-      }
-      list.sort((a, b) => new Date(a.coup_denvoi) - new Date(b.coup_denvoi));
-      this.matchs = list;
-      this.chargement = false;
     },
 
     async chargerMatchsPasses() {
@@ -1071,12 +1185,30 @@ function zanalyz() {
     },
 
     async chargerFiche(id) {
-      this.chargement = true;
-      this.fiche = null;
-      const { data, fromCache } = await getJSON('/api/v1/matchs/' + id + '/');
-      this.noterCache(fromCache);
-      this.fiche = data;
-      this.chargement = false;
+      this.chargement = !this.fiche;
+      try {
+        const { data, fromCache, offline, ok } = await getJSON('/api/v1/matchs/' + id + '/');
+        if (offline || !ok || !data) {
+          this.horsLigne = offline || this.horsLigne;
+          try {
+            const raw = localStorage.getItem(LS_FICHE_PREFIX + id);
+            if (raw) {
+              this.fiche = JSON.parse(raw);
+              this.cacheBanner = true;
+              this.cacheLabel = 'hors ligne';
+            }
+          } catch (_) { /* ignore */ }
+          return;
+        }
+        this.horsLigne = false;
+        this.noterCache(fromCache);
+        this.fiche = data;
+        try {
+          localStorage.setItem(LS_FICHE_PREFIX + id, JSON.stringify(data));
+        } catch (_) { /* quota */ }
+      } finally {
+        this.chargement = false;
+      }
     },
 
     async chargerVerif() {
@@ -1451,7 +1583,7 @@ function zanalyz() {
       if (this._ptrY == null) return;
       const dy = e.changedTouches[0].clientY - this._ptrY;
       this._ptrY = null;
-      if (window.scrollY < 8 && dy > 60) this.chargerMatchs();
+      if (window.scrollY < 8 && dy > 60) this.rafraichirDonnees(true);
     },
 
     async chargerPropositions(id) {

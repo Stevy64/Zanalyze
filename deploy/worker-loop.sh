@@ -60,26 +60,23 @@ run_pipeline() {
   # shellcheck disable=SC2064
   trap release_lock EXIT
 
-  # 1 = ingest SofaScore dans Django (VPS egress libre).
-  # 0 = snapshot Zanalyze Engine (PythonAnywhere / pas de whitelist SofaScore).
+  # Toujours tirer le snapshot Engine (source de vérité scores / statuts / bilans).
+  # GitHub Actions rafraîchit le JSON ~toutes les 2 h.
+  SNAP_URL="${ZANALYZ_SNAPSHOT_URL:-https://raw.githubusercontent.com/Stevy64/Zanalyze-Engine/main/exports/matchs.json}"
+  echo ">>> importer_snapshot Engine ($SNAP_URL)"
+  python manage.py importer_snapshot --url "$SNAP_URL" \
+    || echo "WARN import Engine échoué"
+
+  # Optionnel : ingest live SofaScore (VPS egress libre) en complément.
   if [ "${ZANALYZ_SYNC_LIVE:-1}" = "1" ]; then
-    echo ">>> synchroniser_sofascore + calculer"
+    echo ">>> synchroniser_sofascore + calculer (complément live)"
     python manage.py synchroniser_sofascore --pages "${ZANALYZ_SYNC_PAGES:-${C2B_SYNC_PAGES:-1}}" --passes "${ZANALYZ_SYNC_PASSES:-${C2B_SYNC_PASSES:-1}}" --calculer \
-      || echo "WARN sync/calcul échoué (on continue)"
+      || echo "WARN sync/calcul échoué (on continue — snapshot Engine déjà importé)"
 
     if [ "${ZANALYZ_SYNC_CONTEXTE:-${C2B_SYNC_CONTEXTE:-0}}" = "1" ]; then
       echo ">>> sync contexte"
       python manage.py synchroniser_sofascore --pages 1 --passes 0 --contexte \
         || echo "WARN contexte échoué"
-    fi
-  else
-    echo ">>> importer_snapshot (Zanalyze Engine)"
-    if [ -n "${ZANALYZ_SNAPSHOT_URL:-}" ]; then
-      python manage.py importer_snapshot --url "${ZANALYZ_SNAPSHOT_URL}" \
-        || echo "WARN import URL échoué"
-    else
-      python manage.py importer_snapshot --source "${ZANALYZ_SNAPSHOT_PATH:-exports/matchs.json}" \
-        || echo "WARN import fichier échoué"
     fi
   fi
 
@@ -90,6 +87,10 @@ run_pipeline() {
   echo ">>> purger_chat"
   python manage.py purger_chat \
     || echo "WARN purge chat échoué"
+
+  echo ">>> decroitre_points"
+  python manage.py decroitre_points \
+    || echo "WARN decay points échoué"
 
   release_lock
   trap - EXIT

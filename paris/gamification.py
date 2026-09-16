@@ -1,6 +1,10 @@
 """Gamification membres — pronostics 1X2, propositions, grades et objectifs."""
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.utils import timezone
+
 GRADES = (
     (0, 'mougou', 'Mougou'),
     (40, 'zanalyste', 'Zanalyste'),
@@ -11,6 +15,7 @@ GRADES = (
 POINTS_BONNE_PRED = 12
 POINTS_PARTICIPATION = 2
 POINTS_PROPOSITION = 5
+POINTS_DECAY_PAR_JOUR = 1
 # Bonus série de bons pronostics (appliqué au règlement du N-ième gain d’affilée).
 STREAK_BONUS = (
     (3, 5),
@@ -31,7 +36,6 @@ def libelle_grade(code: str) -> str:
     for _seuil, cle, lib in GRADES:
         if cle == code:
             return lib
-    # compat anciens codes
     return {
         'rookie': 'Mougou',
         'analyste': 'Zanalyste',
@@ -45,13 +49,11 @@ def objectif_suivant(points: int) -> dict:
     pts = max(0, int(points or 0))
     courant = grade_pour(pts)
     courant_lib = libelle_grade(courant)
-    # Seuil du grade courant
     seuil_courant = 0
     for seuil, cle, _lib in GRADES:
         if cle == courant:
             seuil_courant = seuil
             break
-    # Prochain grade
     prochain = None
     for seuil, cle, lib in GRADES:
         if pts < seuil:
@@ -69,7 +71,11 @@ def objectif_suivant(points: int) -> dict:
             'reste': 0,
             'progress_pct': 100,
             'atteint_max': True,
-            'message': 'Grade max atteint — Boss. Continue à pronostiquer pour dominer le classement !',
+            'reste_libelle': '',
+            'message': (
+                'Grade max — Boss. Attention : −1 pt / 24 h sans activité, '
+                'continue à parier pour rester au top !'
+            ),
         }
     span = max(1, prochain['seuil'] - seuil_courant)
     done = pts - seuil_courant
@@ -86,9 +92,10 @@ def objectif_suivant(points: int) -> dict:
         'reste': reste,
         'progress_pct': pct,
         'atteint_max': False,
+        'reste_libelle': f'{reste} pts restants pour devenir {prochain["libelle"]}',
         'message': (
-            f'Plus que {reste} pts pour passer {prochain["libelle"]} '
-            f'(pose un 1X2 ou propose un pari).'
+            f'Plus que {reste} pts pour devenir {prochain["libelle"]} '
+            f'(pose un 1X2 ou propose un pari). −1 pt / 24 h.'
         ),
     }
 
@@ -109,6 +116,51 @@ def _streak_bonus(serie: int) -> int:
     return bonus
 
 
+def appliquer_decay(profil) -> int:
+    """
+    Retire 1 pt par période de 24 h écoulée depuis points_decay_le.
+    Plancher à 0. Retourne le nombre de points retirés.
+    """
+    now = timezone.now()
+    if profil.points_decay_le is None:
+        profil.points_decay_le = now
+        profil.save(update_fields=['points_decay_le'])
+        return 0
+    delta = now - profil.points_decay_le
+    jours = int(delta.total_seconds() // 86400)
+    if jours < 1:
+        return 0
+    pts = int(profil.points_premium or 0)
+    retire = min(pts, jours * POINTS_DECAY_PAR_JOUR)
+    profil.points_premium = pts - retire
+    # Avance l’horloge du nombre de jours complets appliqués (pas « now »
+    # pour ne pas perdre une fraction de jour déjà écoulée).
+    profil.points_decay_le = profil.points_decay_le + timedelta(days=jours)
+    if profil.points_decay_le > now:
+        profil.points_decay_le = now
+    profil.save(update_fields=['points_premium', 'points_decay_le'])
+    return retire
+
+
+def decroitre_tous_les_profils() -> dict[str, int]:
+    """Batch pour cron / commande : applique le decay sur tous les profils."""
+    from paris.models import Profil
+
+    n_profils = 0
+    n_points = 0
+    for profil in Profil.objects.filter(points_premium__gt=0).iterator():
+        retire = appliquer_decay(profil)
+        if retire:
+            n_profils += 1
+            n_points += retire
+        elif profil.points_decay_le is None:
+            n_profils += 0
+    # Initialise aussi les profils à 0 pts sans horloge
+    for profil in Profil.objects.filter(points_decay_le__isnull=True).iterator():
+        appliquer_decay(profil)
+    return {'profils_touches': n_profils, 'points_retires': n_points}
+
+
 def stats_utilisateur(user) -> dict:
     from paris.models import PronosticPremium, PropositionParis
 
@@ -119,7 +171,6 @@ def stats_utilisateur(user) -> dict:
     en_attente = qs.filter(points__isnull=True).count()
     props = PropositionParis.objects.filter(auteur=user).count()
 
-    # Série actuelle (gains d’affilée sur les plus récents réglés)
     serie = 0
     for prono in regles.order_by('-match__coup_denvoi', '-id'):
         if prono.gagne:
@@ -143,28 +194,53 @@ def hint_actions(stats: dict, objectif: dict) -> str:
         return (
             'Premier pas : ouvre un match à venir, pose ton 1X2 '
             f'(+{POINTS_PARTICIPATION} à +{POINTS_BONNE_PRED} pts) '
-            f'ou propose un pari (+{POINTS_PROPOSITION} pts).'
+            f'ou propose un pari (+{POINTS_PROPOSITION} pts). '
+            f'Attention : −{POINTS_DECAY_PAR_JOUR} pt / 24 h.'
         )
     if not objectif.get('atteint_max'):
         return objectif.get('message') or ''
-    return 'Tu es Boss — reste dans le top du classement en multipliant les bons pronos.'
+    return (
+        'Tu es Boss — parie régulièrement : −1 pt disparaît chaque 24 h '
+        'si tu restes inactif.'
+    )
+
+
+def categorie_classement(user) -> str:
+    """Catégorie de classement : membre | premium."""
+    from paris.roles import categorie_user
+    cat = categorie_user(user)
+    if cat == 'premium':
+        return 'premium'
+    return 'membre'
 
 
 def progression_utilisateur(user) -> dict:
     from paris.models import Profil
 
     profil, _ = Profil.objects.get_or_create(user=user)
+    try:
+        appliquer_decay(profil)
+        profil.refresh_from_db()
+    except Exception:
+        # Ne jamais bloquer login / info si decay ou colonnes absentes.
+        pass
     pts = int(profil.points_premium or 0)
     grade = grade_pour(pts)
     obj = objectif_suivant(pts)
     stats = stats_utilisateur(user)
+    cat = categorie_classement(user)
     return {
         'points': pts,
         'grade': grade,
         'grade_libelle': libelle_grade(grade),
+        'categorie_classement': cat,
         'objectif': obj,
         'stats': stats,
         'hint': hint_actions(stats, obj),
+        'decay': {
+            'par_jour': POINTS_DECAY_PAR_JOUR,
+            'message': f'−{POINTS_DECAY_PAR_JOUR} pt toutes les 24 h (plancher à 0).',
+        },
         'gains': {
             'prono_ok': POINTS_BONNE_PRED,
             'prono_ko': POINTS_PARTICIPATION,
@@ -180,8 +256,15 @@ def ajouter_points(user, points: int) -> int:
     if points <= 0:
         return 0
     profil, _ = Profil.objects.get_or_create(user=user)
+    appliquer_decay(profil)
+    profil.refresh_from_db()
     profil.points_premium = int(profil.points_premium or 0) + int(points)
-    profil.save(update_fields=['points_premium'])
+    # Gagner des points ne reset pas le decay : la pression reste.
+    if profil.points_decay_le is None:
+        profil.points_decay_le = timezone.now()
+        profil.save(update_fields=['points_premium', 'points_decay_le'])
+    else:
+        profil.save(update_fields=['points_premium'])
     return int(points)
 
 
@@ -206,7 +289,6 @@ def regler_pronostics_match(match) -> int:
     for prono in qs:
         ok = prono.choix == gagnant
         pts = POINTS_BONNE_PRED if ok else POINTS_PARTICIPATION
-        # Série avant ce match (gains d’affilée déjà réglés)
         serie = 0
         if ok:
             anterieurs = (
@@ -220,7 +302,7 @@ def regler_pronostics_match(match) -> int:
                     serie += 1
                 else:
                     break
-            serie += 1  # inclut le gain actuel
+            serie += 1
             pts += _streak_bonus(serie)
         prono.points = pts
         prono.gagne = ok

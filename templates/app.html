@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=82">
+  <link rel="stylesheet" href="/static/css/app.css?v=83">
 </head>
 <body
   x-data="zanalyz()"
@@ -52,6 +52,10 @@
   <div class="banners">
     <div class="banner" x-show="cacheBanner" x-cloak role="status">
       Données du <span x-text="cacheLabel"></span>
+      <button type="button" class="btn-text" @click="rafraichirDonnees(true)">Actualiser</button>
+    </div>
+    <div class="banner banner-offline" x-show="horsLigne" x-cloak role="status">
+      Hors ligne — affichage des dernières données enregistrées.
     </div>
     <div class="banner banner-update" x-show="swWaiting" x-cloak>
       Nouvelle version prête.
@@ -744,7 +748,7 @@
             </div>
             <template x-if="salonOnglet === 'classement'">
               <div class="classement-wrap">
-                <p class="hint">Pronostique le 1X2 avant le coup d’envoi : +12 pts si OK, +2 de participation (+ bonus série).</p>
+                <p class="hint">Classement Premium uniquement. Pronostique le 1X2 avant le coup d’envoi (+12 si OK, +2 sinon). −1 pt / 24 h.</p>
                 <div class="premium-score" x-show="classementMoi" x-cloak>
                   <span class="bilan-chip ok" x-text="(classementMoi && classementMoi.points) + ' pts'"></span>
                   <span class="bilan-chip wait" x-text="classementMoi && (classementMoi.grade_libelle || libGrade(classementMoi.grade))"></span>
@@ -862,39 +866,90 @@
               </p>
               <div class="challenge-card" x-show="authentifie" x-cloak>
                 <div class="challenge-top">
-                  <div>
-                    <h3 class="challenge-title">Challenge Zanalyze</h3>
-                    <p class="hint" x-text="(progression && progression.hint) || 'Pronostique et propose des paris pour monter en grade.'"></p>
+                  <div class="challenge-heading">
+                    <span class="challenge-ico" x-html="icon('trophy','icon icon-md')"></span>
+                    <div>
+                      <h3 class="challenge-title">Challenge Zanalyze</h3>
+                    </div>
                   </div>
-                  <div class="premium-score">
-                    <span class="bilan-chip ok" x-text="pointsPremium + ' pts'"></span>
-                    <span class="bilan-chip wait" x-text="libGrade(gradePremium)"></span>
+                  <div class="premium-score challenge-badges">
+                    <span class="challenge-pill pts">
+                      <span class="challenge-pill-ico" x-html="icon('zap','icon icon-sm')"></span>
+                      <span x-text="pointsPremium + ' pts'"></span>
+                    </span>
+                    <span class="challenge-pill grade">
+                      <span class="challenge-pill-ico" x-html="icon('badge-check','icon icon-sm')"></span>
+                      <span x-text="libGrade(gradePremium)"></span>
+                    </span>
                   </div>
                 </div>
+
                 <template x-if="progression && progression.objectif">
-                  <div class="obj-block">
+                  <div class="obj-block challenge-progress">
                     <div class="obj-labels">
-                      <span x-text="progression.objectif.libelle_actuel"></span>
-                      <span x-text="progression.objectif.atteint_max ? 'MAX' : ('→ ' + progression.objectif.prochain_libelle)"></span>
+                      <span class="obj-from">
+                        <span class="obj-dot"></span>
+                        <span x-text="progression.objectif.libelle_actuel"></span>
+                      </span>
+                      <span class="obj-to"
+                        x-text="progression.objectif.atteint_max ? 'MAX' : ('→ ' + progression.objectif.prochain_libelle)"></span>
                     </div>
-                    <div class="obj-bar"><span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span></div>
-                    <p class="hint" x-show="!progression.objectif.atteint_max"
-                      x-text="progression.objectif.reste + ' pts restants pour ' + progression.objectif.prochain_libelle"></p>
+                    <div class="obj-bar obj-bar-lg">
+                      <span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span>
+                    </div>
+                    <p class="challenge-reste" x-show="!progression.objectif.atteint_max" x-cloak
+                      x-text="progression.objectif.reste_libelle || (progression.objectif.reste + ' pts restants pour devenir ' + progression.objectif.prochain_libelle)"></p>
+                    <p class="challenge-reste max" x-show="progression.objectif.atteint_max" x-cloak>
+                      Grade max atteint — reste actif pour le garder.
+                    </p>
                   </div>
                 </template>
+
                 <div class="challenge-stats" x-show="progression && progression.stats" x-cloak>
-                  <div><small>Gagnés</small><b x-text="(progression.stats.pronos_gagnes || 0) + '/' + (progression.stats.pronos_joues || 0)"></b></div>
-                  <div><small>Réussite</small><b x-text="progression.stats.taux_reussite != null ? (progression.stats.taux_reussite + ' %') : '—'"></b></div>
-                  <div><small>Série</small><b x-text="progression.stats.serie_actuelle || 0"></b></div>
-                  <div><small>Props</small><b x-text="progression.stats.propositions || 0"></b></div>
+                  <div class="challenge-stat">
+                    <span class="challenge-stat-ico" x-html="icon('check','icon icon-sm')"></span>
+                    <small>Gagnés</small>
+                    <b x-text="(progression.stats.pronos_gagnes || 0) + '/' + (progression.stats.pronos_joues || 0)"></b>
+                  </div>
+                  <div class="challenge-stat">
+                    <span class="challenge-stat-ico" x-html="icon('percent','icon icon-sm')"></span>
+                    <small>Réussite</small>
+                    <b x-text="progression.stats.taux_reussite != null ? (progression.stats.taux_reussite + ' %') : '—'"></b>
+                  </div>
+                  <div class="challenge-stat">
+                    <span class="challenge-stat-ico" x-html="icon('flame','icon icon-sm')"></span>
+                    <small>Série</small>
+                    <b x-text="progression.stats.serie_actuelle || 0"></b>
+                  </div>
+                  <div class="challenge-stat">
+                    <span class="challenge-stat-ico" x-html="icon('sparkles','icon icon-sm')"></span>
+                    <small>Props</small>
+                    <b x-text="progression.stats.propositions || 0"></b>
+                  </div>
                 </div>
-                <ul class="challenge-howto">
-                  <li>Pronostic 1X2 avant match → +2 pts, +12 si OK</li>
-                  <li>Série de 3 / 5 / 10 bons coups → bonus</li>
-                  <li>Proposer un pari sur un match → +5 pts</li>
-                </ul>
-                <button type="button" class="btn btn-block" @click="ouvrirClassement()">
-                  Voir le classement
+
+                <div class="challenge-howto">
+                  <div class="howto-row">
+                    <span class="howto-ico" x-html="icon('crosshair','icon icon-sm')"></span>
+                    <span>Pronostic 1X2 avant match → +2 pts, +12 si OK</span>
+                  </div>
+                  <div class="howto-row">
+                    <span class="howto-ico" x-html="icon('flame','icon icon-sm')"></span>
+                    <span>Série de 3 / 5 / 10 bons coups → bonus</span>
+                  </div>
+                  <div class="howto-row">
+                    <span class="howto-ico" x-html="icon('send','icon icon-sm')"></span>
+                    <span>Proposer un pari sur un match → +5 pts</span>
+                  </div>
+                  <div class="howto-row howto-warn">
+                    <span class="howto-ico" x-html="icon('clock','icon icon-sm')"></span>
+                    <span>Inactivité : −1 pt / 24 h (jamais sous 0) — parie pour tenir ton niveau</span>
+                  </div>
+                </div>
+
+                <button type="button" class="btn btn-block challenge-rank-btn" @click="ouvrirClassement()">
+                  <span x-html="icon('users','icon icon-sm')"></span>
+                  <span x-text="'Classement ' + ((categorie === 'premium') ? 'Premium' : 'Membres')"></span>
                 </button>
               </div>
               <button type="button" class="btn btn-vip" x-show="categorie === 'membre'" x-cloak
@@ -1603,20 +1658,41 @@
       @touchmove.passive="sheetDragMove($event)"
       @touchend="sheetDragEnd()"></div>
     <div class="sheet-body">
-      <h2>Classement Challenge</h2>
-      <p class="hint" x-show="classementMoi && classementMoi.hint" x-cloak x-text="classementMoi.hint"></p>
+      <h2>
+        Classement
+        <span class="cl-cat-pill"
+          x-text="(classementMoi && classementMoi.libelle_categorie) || (categorie === 'premium' ? 'Premium' : 'Membres')"></span>
+      </h2>
       <div class="challenge-stats" x-show="classementMoi && classementMoi.stats" x-cloak>
-        <div><small>Gagnés</small><b x-text="(classementMoi.stats.pronos_gagnes || 0) + '/' + (classementMoi.stats.pronos_joues || 0)"></b></div>
-        <div><small>Réussite</small><b x-text="classementMoi.stats.taux_reussite != null ? (classementMoi.stats.taux_reussite + ' %') : '—'"></b></div>
-        <div><small>Série</small><b x-text="classementMoi.stats.serie_actuelle || 0"></b></div>
-        <div><small>Rang</small><b x-text="classementMoi.rang ? ('#' + classementMoi.rang) : '—'"></b></div>
+        <div class="challenge-stat">
+          <span class="challenge-stat-ico" x-html="icon('check','icon icon-sm')"></span>
+          <small>Gagnés</small>
+          <b x-text="(classementMoi.stats.pronos_gagnes || 0) + '/' + (classementMoi.stats.pronos_joues || 0)"></b>
+        </div>
+        <div class="challenge-stat">
+          <span class="challenge-stat-ico" x-html="icon('percent','icon icon-sm')"></span>
+          <small>Réussite</small>
+          <b x-text="classementMoi.stats.taux_reussite != null ? (classementMoi.stats.taux_reussite + ' %') : '—'"></b>
+        </div>
+        <div class="challenge-stat">
+          <span class="challenge-stat-ico" x-html="icon('flame','icon icon-sm')"></span>
+          <small>Série</small>
+          <b x-text="classementMoi.stats.serie_actuelle || 0"></b>
+        </div>
+        <div class="challenge-stat">
+          <span class="challenge-stat-ico" x-html="icon('trophy','icon icon-sm')"></span>
+          <small>Rang</small>
+          <b x-text="classementMoi.rang ? ('#' + classementMoi.rang) : '—'"></b>
+        </div>
       </div>
-      <div class="obj-block" x-show="classementMoi && classementMoi.objectif" x-cloak>
+      <div class="obj-block challenge-progress" x-show="classementMoi && classementMoi.objectif" x-cloak>
         <div class="obj-labels">
           <span x-text="classementMoi.objectif.libelle_actuel"></span>
           <span x-text="classementMoi.objectif.atteint_max ? 'MAX' : ('→ ' + classementMoi.objectif.prochain_libelle)"></span>
         </div>
-        <div class="obj-bar"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
+        <div class="obj-bar obj-bar-lg"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
+        <p class="challenge-reste" x-show="classementMoi.objectif && !classementMoi.objectif.atteint_max" x-cloak
+          x-text="classementMoi.objectif.reste_libelle"></p>
       </div>
       <div class="loader-wrap" x-show="classementChargement" x-cloak>
         <div class="spinner" role="status"></div>
@@ -1775,7 +1851,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=82"></script>
+  <script defer src="/static/js/app.js?v=83"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

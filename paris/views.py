@@ -61,7 +61,7 @@ def _payload_vip_public():
 class Pagination30(PageNumberPagination):
     page_size = 30
     page_size_query_param = 'page_size'
-    max_page_size = 50
+    max_page_size = 120
 
 
 class CacheETagMixin:
@@ -159,8 +159,11 @@ class CompetitionList(CacheETagMixin, APIView):
 class MatchList(CacheETagMixin, APIView):
     permission_classes = [AllowAny]
     pagination_class = Pagination30
+    cache_seconds = 60
 
     def get(self, request):
+        from paris.engine_sync import declencher_refresh_async
+        declencher_refresh_async()
         qs = _filtrer_matchs(_matchs_qs(), request.query_params)
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(qs, request, view=self)
@@ -297,13 +300,34 @@ class VerificationDetail(CacheETagMixin, APIView):
 
 class Info(CacheETagMixin, APIView):
     permission_classes = [AllowAny]
+    cache_seconds = 30
 
     def get(self, request):
+        from paris.engine_sync import declencher_refresh_async, etat_sync
+        declencher_refresh_async()
         return Response({
             'version_moteur': VERSION_MOTEUR,
+            'engine': etat_sync(),
             **_payload_auth(request.user),
             **_payload_vip_public(),
         })
+
+
+class SyncEngine(APIView):
+    """Tire le snapshot Engine (scores / statuts / bilans) vers la PWA."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        from paris.engine_sync import etat_sync
+        return Response(etat_sync())
+
+    def post(self, request):
+        from paris.engine_sync import importer_engine
+        force = str(request.data.get('force', '')).lower() in ('1', 'true', 'yes', 'on')
+        result = importer_engine(force=force)
+        status = 200 if result.get('ok') else 502
+        return Response(result, status=status)
 
 
 class Register(APIView):
@@ -745,20 +769,54 @@ class PronosticMatch(APIView):
 
 
 class ClassementPremium(APIView):
-    """Classement points (tous les comptes) + progression personnelle."""
+    """Classement points — même catégorie (membre / premium) + progression."""
     permission_classes = [AllowAny]
 
     def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Q
+        from django.utils import timezone
+
         from paris.gamification import (
-            grade_pour, libelle_grade, progression_utilisateur,
+            appliquer_decay,
+            categorie_classement,
+            grade_pour,
+            libelle_grade,
+            progression_utilisateur,
         )
 
-        rows = (
+        now = timezone.now()
+        cutoff = now - timedelta(days=1)
+        stale = (
             Profil.objects
             .filter(points_premium__gt=0)
+            .filter(Q(points_decay_le__isnull=True) | Q(points_decay_le__lte=cutoff))
             .select_related('user')
-            .order_by('-points_premium', 'user__username')[:40]
         )
+        for profil in stale.iterator():
+            appliquer_decay(profil)
+
+        if request.user and request.user.is_authenticated:
+            cat = categorie_classement(request.user)
+        else:
+            cat = 'membre'
+
+        premium_q = (
+            Q(user__is_staff=True)
+            | Q(user__is_superuser=True)
+            | (
+                Q(categorie__in=['premium', 'vip'])
+                & (Q(vip_expire_le__isnull=True) | Q(vip_expire_le__gt=now))
+            )
+        )
+        qs = Profil.objects.filter(points_premium__gt=0).select_related('user')
+        if cat == 'premium':
+            qs = qs.filter(premium_q)
+        else:
+            qs = qs.exclude(premium_q)
+
+        rows = qs.order_by('-points_premium', 'user__username')[:40]
         results = []
         for i, p in enumerate(rows, start=1):
             code = grade_pour(int(p.points_premium or 0))
@@ -768,6 +826,7 @@ class ClassementPremium(APIView):
                 'points': int(p.points_premium or 0),
                 'grade': code,
                 'grade_libelle': libelle_grade(code),
+                'categorie': cat,
             })
         moi = None
         if request.user and request.user.is_authenticated:
@@ -776,13 +835,30 @@ class ClassementPremium(APIView):
                 (r['rang'] for r in results if r['username'] == request.user.username),
                 None,
             )
+            if rang is None and int(prog.get('points') or 0) >= 0:
+                # Hors top 40 ou 0 pts : calcule le rang réel dans la catégorie.
+                meilleurs = qs.filter(
+                    points_premium__gt=int(prog.get('points') or 0),
+                ).count()
+                egaux = qs.filter(
+                    points_premium=int(prog.get('points') or 0),
+                    user__username__lt=request.user.username,
+                ).count()
+                rang = meilleurs + egaux + 1
             moi = {
                 **prog,
                 'username': request.user.username,
                 'rang': rang,
                 'est_premium': est_vip(request.user),
+                'categorie_classement': cat,
+                'libelle_categorie': 'Premium' if cat == 'premium' else 'Membres',
             }
-        return Response({'results': results, 'moi': moi})
+        return Response({
+            'results': results,
+            'moi': moi,
+            'categorie': cat,
+            'libelle_categorie': 'Premium' if cat == 'premium' else 'Membres',
+        })
 
 
 @ensure_csrf_cookie

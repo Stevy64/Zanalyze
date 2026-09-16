@@ -18,6 +18,7 @@ media/
 Thumbs.db
 data/*.sqlite3
 data/calibration.json
+data/engine_sync.json
 !data/.gitkeep
 !data/snapshots/
 !data/snapshots/.gitkeep

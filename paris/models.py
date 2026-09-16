@@ -269,7 +269,11 @@ class Profil(models.Model):
     )
     points_premium = models.PositiveIntegerField(
         default=0,
-        help_text='Points de la saison (pronostics Premium).',
+        help_text='Points challenge (pronostics / propositions).',
+    )
+    points_decay_le = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Dernière application de la décroissance (−1 pt / 24 h).',
     )
     note_admin = models.CharField(max_length=200, blank=True)
 

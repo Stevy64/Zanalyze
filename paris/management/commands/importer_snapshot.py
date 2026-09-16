@@ -3,18 +3,13 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from paris.engine_sync import DEFAULT_ENGINE_URL, snapshot_url
 from paris.snapshot import importer_snapshot
-
-DEFAULT_ENGINE_URL = (
-    'https://raw.githubusercontent.com/Stevy64/Zanalyze-Engine/main/exports/matchs.json'
-)
 
 
 class Command(BaseCommand):
@@ -36,13 +31,23 @@ class Command(BaseCommand):
             help='URL HTTPS du snapshot (ex. raw.githubusercontent.com)',
         )
         parser.add_argument(
+            '--engine',
+            action='store_true',
+            help='Force l’URL Engine (ZANALYZ_SNAPSHOT_URL ou défaut GitHub).',
+        )
+        parser.add_argument(
             '--recalculer',
             action='store_true',
             help='Après import, relance calculer_analyses (moteur local).',
         )
 
     def handle(self, *args, **opts):
-        url = (opts.get('url') or os.environ.get('ZANALYZ_SNAPSHOT_URL') or '').strip()
+        url = (opts.get('url') or '').strip()
+        if opts.get('engine') and not url:
+            url = snapshot_url()
+        if not url:
+            url = (os.environ.get('ZANALYZ_SNAPSHOT_URL') or '').strip()
+
         if url:
             data = self._depuis_url(url)
         else:
@@ -66,7 +71,7 @@ class Command(BaseCommand):
         if not chemin.exists():
             raise CommandError(
                 f'Fichier introuvable : {chemin}\n'
-                'Passe --url vers le snapshot Zanalyze Engine, ou copie exports/matchs.json.'
+                f'Passe --engine ou --url {DEFAULT_ENGINE_URL}'
             )
         try:
             return json.loads(chemin.read_text(encoding='utf-8'))
@@ -74,20 +79,14 @@ class Command(BaseCommand):
             raise CommandError(f'JSON illisible : {exc}') from exc
 
     def _depuis_url(self, url: str) -> dict:
+        from paris.engine_sync import telecharger_snapshot
+
         self.stdout.write(f'Téléchargement {url} …')
-        req = urllib.request.Request(
-            url,
-            headers={'User-Agent': 'Zanalyze-importer/1.0', 'Accept': 'application/json'},
-        )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read().decode('utf-8')
-        except urllib.error.URLError as exc:
+            data, _digest = telecharger_snapshot(url)
+        except Exception as exc:  # noqa: BLE001
             raise CommandError(
                 f'Impossible de télécharger le snapshot ({exc}). '
-                f'Essaie l’URL par défaut : {DEFAULT_ENGINE_URL}'
+                f'Essaie : {DEFAULT_ENGINE_URL}'
             ) from exc
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise CommandError(f'JSON illisible depuis l’URL : {exc}') from exc
+        return data

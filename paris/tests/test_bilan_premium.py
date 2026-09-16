@@ -135,6 +135,9 @@ class GamificationTests(TestCase):
         self.assertTrue(any(x['username'] == 'premu' for x in r2.data['results']))
         self.assertIn('objectif', r2.data['moi'])
         self.assertIn('stats', r2.data['moi'])
+        self.assertIn('devenir', r2.data['moi']['objectif'].get('reste_libelle', '')
+                      or r2.data['moi']['objectif'].get('message', ''))
+        self.assertEqual(r2.data.get('categorie'), 'premium')
 
     def test_membre_peut_pronostiquer(self):
         membre = User.objects.create_user('membre_g', password='motdepasse123')
@@ -147,3 +150,52 @@ class GamificationTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data['choix'], 'N')
         self.assertIn('progression', r.data)
+
+    def test_classement_separe_par_categorie(self):
+        membre = User.objects.create_user('membre_cl', password='motdepasse123')
+        pm, _ = Profil.objects.get_or_create(user=membre)
+        pm.categorie = 'membre'
+        pm.points_premium = 50
+        pm.points_decay_le = timezone.now()
+        pm.save()
+
+        self.user  # premium with points after setup — force points
+        pp = Profil.objects.get(user=self.user)
+        pp.points_premium = 80
+        pp.points_decay_le = timezone.now()
+        pp.save()
+
+        self.client.force_authenticate(membre)
+        r = self.client.get('/api/v1/classement/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['categorie'], 'membre')
+        names = [x['username'] for x in r.data['results']]
+        self.assertIn('membre_cl', names)
+        self.assertNotIn('premu', names)
+
+        self.client.force_authenticate(self.user)
+        r2 = self.client.get('/api/v1/classement/')
+        self.assertEqual(r2.data['categorie'], 'premium')
+        names2 = [x['username'] for x in r2.data['results']]
+        self.assertIn('premu', names2)
+        self.assertNotIn('membre_cl', names2)
+
+    def test_decay_retire_un_point_par_jour(self):
+        from paris.gamification import appliquer_decay
+
+        p = Profil.objects.get(user=self.user)
+        p.points_premium = 5
+        p.points_decay_le = timezone.now() - timedelta(hours=50)
+        p.save()
+        retire = appliquer_decay(p)
+        p.refresh_from_db()
+        self.assertEqual(retire, 2)
+        self.assertEqual(p.points_premium, 3)
+
+        p.points_premium = 1
+        p.points_decay_le = timezone.now() - timedelta(days=5)
+        p.save()
+        retire2 = appliquer_decay(p)
+        p.refresh_from_db()
+        self.assertEqual(retire2, 1)
+        self.assertEqual(p.points_premium, 0)

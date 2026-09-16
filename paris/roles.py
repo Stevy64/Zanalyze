@@ -55,9 +55,9 @@ def payload_auth(user) -> dict:
             profil, _ = Profil.objects.get_or_create(user=user)
         if cat == 'premium' and profil.vip_expire_le:
             vip_expire = profil.vip_expire_le.isoformat()
-        points = int(getattr(profil, 'points_premium', 0) or 0)
-        grade = grade_pour(points)
         progression = progression_utilisateur(user)
+        points = int(progression.get('points', 0) or 0)
+        grade = progression.get('grade') or grade_pour(points)
     return {
         'authentifie': bool(user and getattr(user, 'is_authenticated', False)),
         'username': user.username if user and getattr(user, 'is_authenticated', False) else None,
