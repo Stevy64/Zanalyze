@@ -3142,11 +3142,86 @@ button.compos-opt:active {
   border-radius: 12px;
   background: rgba(11, 23, 40, 0.04);
 }
+.prono-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.prono-head strong { font-size: 0.95rem; }
 .prono-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   margin-top: 8px;
+}
+.ok-hint { color: #166534; font-weight: 600; }
+.obj-mini, .obj-block { margin-top: 10px; }
+.obj-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.obj-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(11, 23, 40, 0.08);
+  overflow: hidden;
+}
+.obj-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #e8631c, #f59e0b);
+  border-radius: 999px;
+  min-width: 0;
+  transition: width 0.35s ease;
+}
+.challenge-card {
+  margin: 14px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(11, 23, 40, 0.04);
+}
+.challenge-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.challenge-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+.challenge-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+.challenge-stats div {
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.challenge-stats small {
+  display: block;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+.challenge-howto {
+  margin: 0 0 12px;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+.classement-liste li.is-me {
+  background: #fff4ec;
+  border: 1px solid #ffd7bf;
 }
 .salon-tabs {
   display: flex;

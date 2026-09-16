@@ -490,9 +490,14 @@ class PropositionListCreate(APIView):
 
     def post(self, request, pk):
         match = get_object_or_404(Match, pk=pk)
+        if match.statut not in ('a_venir', 'en_cours'):
+            return Response(
+                {'detail': 'Proposition possible uniquement avant la fin du match.'},
+                status=400,
+            )
         ser = PropositionCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        prop, _created = PropositionParis.objects.update_or_create(
+        prop, created = PropositionParis.objects.update_or_create(
             match=match,
             auteur=request.user,
             defaults={
@@ -500,11 +505,16 @@ class PropositionListCreate(APIView):
                 'confiance': ser.validated_data.get('confiance', 50),
             },
         )
+        points_gagnes = 0
+        if created:
+            from paris.gamification import crediter_proposition
+            points_gagnes = crediter_proposition(request.user)
         prop = _propositions_qs(match).get(pk=prop.pk)
         return Response(
             {
                 **PropositionSerializer(prop, context={'request': request}).data,
                 'consensus': _consensus_propositions(match),
+                'points_gagnes': points_gagnes,
             },
             status=201,
         )
@@ -709,15 +719,10 @@ class EquipeInfos(APIView):
 
 
 class PronosticMatch(APIView):
-    """Pronostic 1X2 Premium avant coup d’envoi."""
+    """Pronostic 1X2 — tout compte connecté (pas les visiteurs)."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        if not est_vip(request.user):
-            return Response(
-                {'detail': 'Pronostics réservés aux comptes Premium.', 'code': 'vip_required'},
-                status=403,
-            )
         match = get_object_or_404(Match, pk=pk)
         if match.statut != 'a_venir':
             return Response({'detail': 'Pronostic possible uniquement avant le match.'}, status=400)
@@ -730,25 +735,29 @@ class PronosticMatch(APIView):
             user=request.user,
             defaults={'choix': ser.validated_data['choix'], 'points': None, 'gagne': None},
         )
+        from paris.gamification import progression_utilisateur
         return Response({
             'choix': prono.choix,
             'points': prono.points,
             'gagne': prono.gagne,
+            'progression': progression_utilisateur(request.user),
         })
 
 
 class ClassementPremium(APIView):
-    """Classement des points Premium (saison)."""
+    """Classement points (tous les comptes) + progression personnelle."""
     permission_classes = [AllowAny]
 
     def get(self, request):
-        from paris.gamification import grade_pour, libelle_grade
+        from paris.gamification import (
+            grade_pour, libelle_grade, progression_utilisateur,
+        )
 
         rows = (
             Profil.objects
-            .filter(categorie='premium', points_premium__gt=0)
+            .filter(points_premium__gt=0)
             .select_related('user')
-            .order_by('-points_premium', 'user__username')[:30]
+            .order_by('-points_premium', 'user__username')[:40]
         )
         results = []
         for i, p in enumerate(rows, start=1):
@@ -762,14 +771,15 @@ class ClassementPremium(APIView):
             })
         moi = None
         if request.user and request.user.is_authenticated:
-            profil, _ = Profil.objects.get_or_create(user=request.user)
-            pts = int(profil.points_premium or 0)
-            code = grade_pour(pts)
+            prog = progression_utilisateur(request.user)
+            rang = next(
+                (r['rang'] for r in results if r['username'] == request.user.username),
+                None,
+            )
             moi = {
+                **prog,
                 'username': request.user.username,
-                'points': pts,
-                'grade': code,
-                'grade_libelle': libelle_grade(code),
+                'rang': rang,
                 'est_premium': est_vip(request.user),
             }
         return Response({'results': results, 'moi': moi})

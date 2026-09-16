@@ -510,8 +510,11 @@ function zanalyz() {
     classement: [],
     classementMoi: null,
     classementChargement: false,
+    _progression: null,
+    sheetClassement: false,
     salonOnglet: 'chat',
     pronoBusy: false,
+    pronoMsg: '',
     peutInstaller: false,
     installePWA: false,
     installHint: '',
@@ -560,6 +563,12 @@ function zanalyz() {
     get peutBilanComplet() {
       return !!this.estAdmin || !!this.peutVip;
     },
+    get peutProno() {
+      return this.authentifie && !this.estVisiteur;
+    },
+    get progression() {
+      return this.classementMoi || this._progression || null;
+    },
     get libCategorie() {
       return {
         visiteur: 'Visiteur',
@@ -583,7 +592,9 @@ function zanalyz() {
         this.estVip = !!(data && (data.est_premium || data.est_vip)) || this.categorie === 'premium';
         this.estAdmin = !!(data && data.est_admin);
         this.pointsPremium = (data && data.points_premium) || 0;
-        this.gradePremium = (data && data.grade_premium) || 'rookie';
+        this.gradePremium = (data && data.grade_premium) || 'mougou';
+        this._progression = (data && data.progression) || null;
+        if (this._progression) this.classementMoi = this._progression;
         this.whatsappVipUrl = (data && data.whatsapp_vip_url) || '';
         this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'Premium Zanalyze';
         if (data && data.version_moteur) this.moteur = data.version_moteur;
@@ -724,7 +735,14 @@ function zanalyz() {
         this.partageMsg = '';
         this.sheetJustif = false;
         this.justif = null;
-        if (!this.sheetApercu && !this.sheetAuth && !this.sheetClub && !this.sheetInstall && !this.sheetCgu) {
+        if (!this.sheetApercu && !this.sheetAuth && !this.sheetClub && !this.sheetInstall && !this.sheetCgu && !this.sheetClassement) {
+          document.body.classList.remove('sheet-open');
+        }
+        return;
+      }
+      if (this.sheetClassement) {
+        this.sheetClassement = false;
+        if (!this.sheetApercu && !this.sheetAuth && !this.sheetClub && !this.sheetCompos && !this.sheetInstall && !this.sheetCgu) {
           document.body.classList.remove('sheet-open');
         }
         return;
@@ -956,6 +974,7 @@ function zanalyz() {
         await this.ouvrirSalon();
       } else if (this.page === 'reglages') {
         await this.chargerInfo();
+        if (this.authentifie) await this.chargerClassement();
       }
     },
 
@@ -1317,8 +1336,13 @@ function zanalyz() {
       }[code] || 'Mougou';
     },
     async poserPronostic(choix) {
-      if (!this.fiche || this.fiche.statut !== 'a_venir' || !this.peutVip) return;
+      if (!this.fiche || this.fiche.statut !== 'a_venir') return;
+      if (!this.peutProno) {
+        this.ouvrirAuth('Crée un compte pour poser ton pronostic 1X2 et gagner des points.');
+        return;
+      }
       this.pronoBusy = true;
+      this.pronoMsg = '';
       try {
         const res = await fetch('/api/v1/matchs/' + this.fiche.id + '/pronostic/', {
           method: 'POST',
@@ -1333,6 +1357,19 @@ function zanalyz() {
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           this.fiche.mon_pronostic = data;
+          if (data.progression) {
+            this._progression = data.progression;
+            this.classementMoi = data.progression;
+            this.pointsPremium = data.progression.points;
+            this.gradePremium = data.progression.grade;
+          }
+          this.pronoMsg = 'Pronostic enregistré — +'
+            + ((data.progression && data.progression.gains && data.progression.gains.prono_ko) || 2)
+            + ' à +'
+            + ((data.progression && data.progression.gains && data.progression.gains.prono_ok) || 12)
+            + ' pts après le match.';
+        } else {
+          this.pronoMsg = data.detail || 'Impossible d’enregistrer le pronostic.';
         }
       } finally {
         this.pronoBusy = false;
@@ -1346,9 +1383,22 @@ function zanalyz() {
       this.classement = (data && data.results) || [];
       this.classementMoi = (data && data.moi) || null;
       if (this.classementMoi) {
+        this._progression = this.classementMoi;
         this.pointsPremium = this.classementMoi.points;
         this.gradePremium = this.classementMoi.grade;
       }
+    },
+    async ouvrirClassement() {
+      if (!this.authentifie) {
+        this.ouvrirAuth('Connecte-toi pour voir ton challenge et le classement.');
+        return;
+      }
+      this.sheetApercu = false;
+      this.sheetClub = false;
+      this.sheetCompos = false;
+      this.sheetClassement = true;
+      document.body.classList.add('sheet-open');
+      await this.chargerClassement();
     },
     fmtConsensus(o) {
       if (!o || o.pct_likes == null) return '—';
@@ -1433,8 +1483,14 @@ function zanalyz() {
         }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
         await this.chargerPropositions(this.fiche.id);
         this.propErr = '';
+        if (data.points_gagnes) {
+          await this.chargerInfo();
+          this.propErr = '';
+          this.pronoMsg = '+' + data.points_gagnes + ' pts pour ta proposition !';
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         this.propErr = fmtApiError(err, 'Publication impossible.');

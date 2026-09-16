@@ -331,8 +331,14 @@
                 <span class="badge soft" x-text="fiche.competition.code"></span>
                 <span class="badge soft" x-text="fiche.statut === 'termine' ? 'Terminé' : 'À venir'"></span>
               </div>
-              <div class="prono-box" x-show="peutVip && fiche.statut === 'a_venir'" x-cloak>
-                <p class="hint">Ton pronostic Premium (1X2) — gagne des points pour le classement.</p>
+              <div class="prono-box" x-show="fiche.statut === 'a_venir'" x-cloak>
+                <div class="prono-head">
+                  <strong>Challenge 1X2</strong>
+                  <span class="hint" x-show="peutProno">+2 pts (participation) · +12 si OK · bonus série</span>
+                </div>
+                <p class="hint" x-show="!peutProno" x-cloak>
+                  Connecte-toi pour pronostiquer et grimper Mougou → Boss.
+                </p>
                 <div class="prono-row">
                   <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '1' ? '' : 'btn-ghost'"
                     :disabled="pronoBusy" @click="poserPronostic('1')"
@@ -342,6 +348,11 @@
                   <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '2' ? '' : 'btn-ghost'"
                     :disabled="pronoBusy" @click="poserPronostic('2')"
                     x-text="fiche.exterieur.nom_court"></button>
+                </div>
+                <p class="hint ok-hint" x-show="pronoMsg" x-cloak x-text="pronoMsg"></p>
+                <div class="obj-mini" x-show="peutProno && progression && progression.objectif" x-cloak>
+                  <div class="obj-bar"><span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span></div>
+                  <small x-text="progression.objectif.message"></small>
                 </div>
               </div>
               <div class="fiche-vs">
@@ -733,10 +744,14 @@
             </div>
             <template x-if="salonOnglet === 'classement'">
               <div class="classement-wrap">
-                <p class="hint">Pronostique le 1X2 avant le coup d’envoi : +12 pts si OK, +2 pts de participation.</p>
+                <p class="hint">Pronostique le 1X2 avant le coup d’envoi : +12 pts si OK, +2 de participation (+ bonus série).</p>
                 <div class="premium-score" x-show="classementMoi" x-cloak>
                   <span class="bilan-chip ok" x-text="(classementMoi && classementMoi.points) + ' pts'"></span>
-                  <span class="bilan-chip wait" x-text="classementMoi && classementMoi.grade_libelle"></span>
+                  <span class="bilan-chip wait" x-text="classementMoi && (classementMoi.grade_libelle || libGrade(classementMoi.grade))"></span>
+                </div>
+                <p class="hint" x-show="classementMoi && classementMoi.hint" x-cloak x-text="classementMoi.hint"></p>
+                <div class="obj-mini" x-show="classementMoi && classementMoi.objectif" x-cloak>
+                  <div class="obj-bar"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
                 </div>
                 <div class="loader-wrap" x-show="classementChargement" x-cloak>
                   <div class="spinner" role="status"></div>
@@ -839,15 +854,48 @@
                 </span>
               </p>
               <p class="hint" x-show="categorie === 'membre'" x-cloak>
-                Accès Membre : matchs, likes / dislikes.
-                Nos Zanalyze, justifications + Salon Premium = badge Premium.
+                Accès Membre : matchs, likes, propositions, challenge points.
+                Nos Zanalyze + Salon = badge Premium.
               </p>
               <p class="hint" x-show="categorie === 'premium'" x-cloak>
-                Statut Premium : Nos Zanalyze, justifications, Salon Premium + classement pronostics.
+                Statut Premium : Nos Zanalyze, justifications, Salon Premium + challenge.
               </p>
-              <div class="premium-score" x-show="categorie === 'premium'" x-cloak>
-                <span class="bilan-chip ok" x-text="pointsPremium + ' pts'"></span>
-                <span class="bilan-chip wait" x-text="libGrade(gradePremium)"></span>
+              <div class="challenge-card" x-show="authentifie" x-cloak>
+                <div class="challenge-top">
+                  <div>
+                    <h3 class="challenge-title">Challenge Zanalyze</h3>
+                    <p class="hint" x-text="(progression && progression.hint) || 'Pronostique et propose des paris pour monter en grade.'"></p>
+                  </div>
+                  <div class="premium-score">
+                    <span class="bilan-chip ok" x-text="pointsPremium + ' pts'"></span>
+                    <span class="bilan-chip wait" x-text="libGrade(gradePremium)"></span>
+                  </div>
+                </div>
+                <template x-if="progression && progression.objectif">
+                  <div class="obj-block">
+                    <div class="obj-labels">
+                      <span x-text="progression.objectif.libelle_actuel"></span>
+                      <span x-text="progression.objectif.atteint_max ? 'MAX' : ('→ ' + progression.objectif.prochain_libelle)"></span>
+                    </div>
+                    <div class="obj-bar"><span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span></div>
+                    <p class="hint" x-show="!progression.objectif.atteint_max"
+                      x-text="progression.objectif.reste + ' pts restants pour ' + progression.objectif.prochain_libelle"></p>
+                  </div>
+                </template>
+                <div class="challenge-stats" x-show="progression && progression.stats" x-cloak>
+                  <div><small>Gagnés</small><b x-text="(progression.stats.pronos_gagnes || 0) + '/' + (progression.stats.pronos_joues || 0)"></b></div>
+                  <div><small>Réussite</small><b x-text="progression.stats.taux_reussite != null ? (progression.stats.taux_reussite + ' %') : '—'"></b></div>
+                  <div><small>Série</small><b x-text="progression.stats.serie_actuelle || 0"></b></div>
+                  <div><small>Props</small><b x-text="progression.stats.propositions || 0"></b></div>
+                </div>
+                <ul class="challenge-howto">
+                  <li>Pronostic 1X2 avant match → +2 pts, +12 si OK</li>
+                  <li>Série de 3 / 5 / 10 bons coups → bonus</li>
+                  <li>Proposer un pari sur un match → +5 pts</li>
+                </ul>
+                <button type="button" class="btn btn-block" @click="ouvrirClassement()">
+                  Voir le classement
+                </button>
               </div>
               <button type="button" class="btn btn-vip" x-show="categorie === 'membre'" x-cloak
                 @click="ouvrirVipGate('reglages')">
@@ -1547,6 +1595,49 @@
     <p class="hint" x-show="!clubChargement && !clubInfos" x-cloak style="padding:16px">Infos indisponibles pour ce club.</p>
   </div>
 
+  <div class="bottom-sheet sheet-classement" :class="sheetClassement ? 'open' : ''"
+    role="dialog" aria-modal="true" aria-label="Classement Challenge"
+    :aria-hidden="!sheetClassement">
+    <div class="sheet-handle sheet-handle-drag" aria-hidden="true"
+      @touchstart.passive="sheetDragStart($event)"
+      @touchmove.passive="sheetDragMove($event)"
+      @touchend="sheetDragEnd()"></div>
+    <div class="sheet-body">
+      <h2>Classement Challenge</h2>
+      <p class="hint" x-show="classementMoi && classementMoi.hint" x-cloak x-text="classementMoi.hint"></p>
+      <div class="challenge-stats" x-show="classementMoi && classementMoi.stats" x-cloak>
+        <div><small>Gagnés</small><b x-text="(classementMoi.stats.pronos_gagnes || 0) + '/' + (classementMoi.stats.pronos_joues || 0)"></b></div>
+        <div><small>Réussite</small><b x-text="classementMoi.stats.taux_reussite != null ? (classementMoi.stats.taux_reussite + ' %') : '—'"></b></div>
+        <div><small>Série</small><b x-text="classementMoi.stats.serie_actuelle || 0"></b></div>
+        <div><small>Rang</small><b x-text="classementMoi.rang ? ('#' + classementMoi.rang) : '—'"></b></div>
+      </div>
+      <div class="obj-block" x-show="classementMoi && classementMoi.objectif" x-cloak>
+        <div class="obj-labels">
+          <span x-text="classementMoi.objectif.libelle_actuel"></span>
+          <span x-text="classementMoi.objectif.atteint_max ? 'MAX' : ('→ ' + classementMoi.objectif.prochain_libelle)"></span>
+        </div>
+        <div class="obj-bar"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
+      </div>
+      <div class="loader-wrap" x-show="classementChargement" x-cloak>
+        <div class="spinner" role="status"></div>
+      </div>
+      <ol class="classement-liste" x-show="!classementChargement">
+        <template x-for="row in classement" :key="'cl-' + row.username">
+          <li :class="row.username === username ? 'is-me' : ''">
+            <span class="cl-rang" x-text="'#' + row.rang"></span>
+            <strong x-text="row.username"></strong>
+            <span class="cl-grade" x-text="row.grade_libelle"></span>
+            <span class="cl-pts" x-text="row.points + ' pts'"></span>
+          </li>
+        </template>
+      </ol>
+      <p class="vide vide-sm" x-show="!classementChargement && !classement.length">
+        Personne n’a encore de points — sois le premier à pronostiquer !
+      </p>
+      <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
+    </div>
+  </div>
+
   <div class="bottom-sheet sheet-vip" :class="sheetVip ? 'open' : ''"
     role="dialog" aria-modal="true" aria-label="Devenir Premium"
     :aria-hidden="!sheetVip">
@@ -1564,7 +1655,6 @@
         <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyze (sélection + bilans)</li>
         <li><span x-html="icon('crosshair','icon icon-sm')"></span> Justifications complètes des tips</li>
         <li><span x-html="icon('message','icon icon-sm')"></span> Accès au Salon Premium</li>
-        <li><span x-html="icon('trophy','icon icon-sm')"></span> Pronostics 1X2, points et grades</li>
         <li><span x-html="icon('badge-check','icon icon-sm')"></span> Statut couronne visible sur ton compte</li>
       </ul>
       <p class="hint vip-hint">

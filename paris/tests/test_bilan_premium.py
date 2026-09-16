@@ -133,3 +133,17 @@ class GamificationTests(TestCase):
         r2 = self.client.get('/api/v1/classement/')
         self.assertEqual(r2.status_code, 200)
         self.assertTrue(any(x['username'] == 'premu' for x in r2.data['results']))
+        self.assertIn('objectif', r2.data['moi'])
+        self.assertIn('stats', r2.data['moi'])
+
+    def test_membre_peut_pronostiquer(self):
+        membre = User.objects.create_user('membre_g', password='motdepasse123')
+        Profil.objects.get_or_create(user=membre, defaults={'categorie': 'membre'})
+        self.client.force_authenticate(membre)
+        r = self.client.post(
+            f'/api/v1/matchs/{self.match.id}/pronostic/',
+            {'choix': 'N'}, format='json',
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['choix'], 'N')
+        self.assertIn('progression', r.data)

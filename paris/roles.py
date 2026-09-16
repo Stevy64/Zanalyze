@@ -44,10 +44,11 @@ def payload_auth(user) -> dict:
     cat = categorie_user(user)
     vip_expire = None
     points = 0
-    grade = 'rookie'
+    grade = 'mougou'
+    progression = None
     if user and getattr(user, 'is_authenticated', False):
         from paris.models import Profil
-        from paris.gamification import grade_pour
+        from paris.gamification import grade_pour, progression_utilisateur
 
         profil = getattr(user, 'profil', None)
         if profil is None:
@@ -56,6 +57,7 @@ def payload_auth(user) -> dict:
             vip_expire = profil.vip_expire_le.isoformat()
         points = int(getattr(profil, 'points_premium', 0) or 0)
         grade = grade_pour(points)
+        progression = progression_utilisateur(user)
     return {
         'authentifie': bool(user and getattr(user, 'is_authenticated', False)),
         'username': user.username if user and getattr(user, 'is_authenticated', False) else None,
@@ -66,4 +68,5 @@ def payload_auth(user) -> dict:
         'vip_expire_le': vip_expire,
         'points_premium': points,
         'grade_premium': grade,
+        'progression': progression,
     }
