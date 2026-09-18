@@ -1327,10 +1327,32 @@ button { cursor: pointer; }
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
 }
+.bilan-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+}
+.bilan-verdict .icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  stroke-width: 2.4;
+}
+.bilan-verdict.bilan-gagne { color: var(--ok); }
+.bilan-verdict.bilan-perdu { color: var(--ko); }
+.bilan-verdict.bilan-annule,
+.bilan-verdict.bilan-attente { color: var(--muted); }
 .passe-reco.bilan-gagne .bilan-pill-sm { color: var(--ok); }
 .passe-reco.bilan-perdu .bilan-pill-sm { color: var(--ko); }
 .passe-reco.bilan-attente .bilan-pill-sm { color: var(--warn); }
+.compos-opt .bilan-pill-sm .bilan-verdict.bilan-gagne { color: var(--ok); }
+.compos-opt .bilan-pill-sm .bilan-verdict.bilan-perdu { color: var(--ko); }
+.opt-mini.bilan-gagne .bilan-pill-sm .bilan-verdict { color: var(--ok); }
+.opt-mini.bilan-perdu .bilan-pill-sm .bilan-verdict { color: var(--ko); }
 
 .kpi-histo {
   grid-template-columns: 1fr 1fr;

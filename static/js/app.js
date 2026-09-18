@@ -1083,6 +1083,22 @@ function zanalyz() {
       return 'En attente';
     },
 
+    htmlBilanTip(o) {
+      if (!o) return '';
+      const r = o.resultat || 'attente';
+      const lib = this.libResultatTip(o);
+      let ico = '';
+      if (r === 'gagne') ico = icon('trophy', 'icon icon-sm');
+      else if (r === 'perdu') ico = icon('x', 'icon icon-sm');
+      else if (r === 'annule') ico = icon('info', 'icon icon-sm');
+      return (
+        '<span class="bilan-verdict bilan-' + r + '" aria-label="' + lib + '">'
+        + ico
+        + '<span class="bilan-verdict-txt">' + lib + '</span>'
+        + '</span>'
+      );
+    },
+
     bilanResume(fiche) {
       const opts = this.optionsApercu(fiche);
       if (!opts.length) return null;
@@ -1555,7 +1571,7 @@ function zanalyz() {
       return '·';
     },
     iconResultat(r) {
-      if (r === 'gagne') return icon('check', 'icon icon-sm');
+      if (r === 'gagne') return icon('trophy', 'icon icon-sm');
       if (r === 'perdu') return icon('x', 'icon icon-sm');
       return '';
     },
