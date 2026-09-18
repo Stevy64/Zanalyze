@@ -30,8 +30,8 @@ Variables :
 | Variable | Rôle |
 |----------|------|
 | `ZANALYZ_SNAPSHOT_URL` | URL du JSON engine (défaut = raw GitHub ci-dessus) |
-| `ZANALYZ_SYNC_LIVE=0` | Sur PA : pas d’ingest SofaScore en plus |
-| `ZANALYZ_SYNC_LIVE=1` | VPS : snapshot Engine **puis** complément SofaScore optionnel |
+| `ZANALYZ_SYNC_LIVE=0` | **PA (recommandé)** : scores/bilans = snapshot Engine uniquement |
+| `ZANALYZ_SYNC_LIVE=1` | VPS seulement : complément live (fiches club / SofaScore) — **pas** requis pour les bilans |
 | `ZANALYZ_MOTEUR_URL` | Optionnel (VPS Docker). Sur PA, laisser vide |
 
 Hors-ligne PWA : service worker (network-first + timeout → cache) + dernier

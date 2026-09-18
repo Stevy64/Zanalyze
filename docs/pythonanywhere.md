@@ -19,11 +19,15 @@ Le workflow du repo engine commit `exports/matchs.json` toutes les ~2 h.
 
 ### B. Sur PythonAnywhere (Scheduled task)
 
+**Garder `ZANALYZ_SYNC_LIVE=0`.** Ce n’est **pas** nécessaire (ni recommandé) sur PA pour avoir scores/bilans à jour : PA n’ingest pas ESPN/SofaScore de façon fiable. La fraîcheur = snapshot Engine + import régulier.
+
+Scheduled task (toutes les **2 h**, ex. `25 */2 * * *` — 10 min après le cron Engine) :
+
 ```bash
 cd ~/Zanalyze
 source ~/.virtualenvs/zanalyz/bin/activate
 set -a && source .env && set +a
-python manage.py importer_snapshot --url https://raw.githubusercontent.com/Stevy64/Zanalyze-Engine/main/exports/matchs.json
+python manage.py importer_snapshot --url "$ZANALYZ_SNAPSHOT_URL"
 ```
 
 `.env` PA :
@@ -42,8 +46,10 @@ Recharge la page Matchs. Le filtre date doit correspondre au snapshot (`--jours 
 
 | Fréquence | Action |
 |-----------|--------|
-| Engine (Actions) | sync ESPN + analyses + push JSON |
-| PA | `importer_snapshot --url …` |
+| Engine (Actions) | sync ESPN + analyses + push JSON (~2 h) |
+| PA (Scheduled task) | `importer_snapshot --url …` (~2 h) |
+
+La PWA déclenche aussi un import async au chargement (`/api/v1/info/`), mais la **task PA** garantit la fraîcheur même sans visite.
 
 Fallback manuel (PC) : `make sync-dev` puis `make snapshot-export-dev` dans **ce** repo.
 
