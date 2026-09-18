@@ -126,6 +126,9 @@ def _filtrer_matchs(qs, params):
     code = params.get('competition')
     if code:
         qs = qs.filter(competition__code=code)
+    pays = (params.get('pays') or '').strip()
+    if pays:
+        qs = qs.filter(competition__pays__iexact=pays)
     statut = params.get('statut')
     if statut:
         vals = [s.strip() for s in statut.split(',') if s.strip()]
@@ -152,6 +155,20 @@ class CompetitionList(CacheETagMixin, APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        # Garantit les filtres Europe (UCL / UEL) même avant le prochain import.
+        for code, nom, ordre in (
+            ('UCL', 'Ligue des champions', 10),
+            ('UEL', 'Ligue Europa', 11),
+        ):
+            Competition.objects.get_or_create(
+                code=code,
+                defaults={
+                    'nom': nom,
+                    'pays': 'Europe',
+                    'ordre': ordre,
+                    'actif': True,
+                },
+            )
         qs = Competition.objects.filter(actif=True)
         return Response(CompetitionSerializer(qs, many=True).data)
 
@@ -323,9 +340,18 @@ class SyncEngine(APIView):
         return Response(etat_sync())
 
     def post(self, request):
-        from paris.engine_sync import importer_engine
+        from paris.engine_sync import declencher_refresh_async, etat_sync, importer_engine
         force = str(request.data.get('force', '')).lower() in ('1', 'true', 'yes', 'on')
-        result = importer_engine(force=force)
+        # Auto : import en arrière-plan pour ne pas bloquer le premier paint PWA.
+        if not force:
+            declencher_refresh_async(force=False)
+            return Response({
+                'ok': True,
+                'skipped': True,
+                'reason': 'async',
+                **etat_sync(),
+            })
+        result = importer_engine(force=True)
         status = 200 if result.get('ok') else 502
         return Response(result, status=status)
 

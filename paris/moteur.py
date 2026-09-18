@@ -64,6 +64,8 @@ FAMILLES_PEU_FIABLES = frozenset({
     'BTTS', 'Une équipe marque', "Total d'une équipe",
 })
 CODE_FILET = 'OV_0.5'
+# Équilibrée : toujours double chance « ne perd pas » (1X ou X2).
+CODES_EQUILIBREE = frozenset({'DC_1X', 'DC_X2'})
 
 # Bonus négatif = famille privilégiée.
 # 1X2 : léger frein (pas d’interdiction) pour laisser place aux favoris nets.
@@ -555,18 +557,39 @@ def choisir_trois(options, profil, moyennes, codes_eviter=None, compteur_formes=
         )
         return repli
 
-    for niveau in ('prudente', 'equilibree', 'audacieuse'):
+    def _poser(choisi, niveau):
+        choisi['niveau'] = niveau
+        familles_prises.add(choisi['famille'])
+        codes_pris.add(choisi['code'])
+        formes_prises.add(choisi['forme'])
+        # L’équilibrée est imposée (1X/X2) : hors plafond de formes journée.
+        if niveau != 'equilibree':
+            compteur[choisi['forme']] += 1
+
+    # Équilibrée en premier : toujours 1X ou X2, proba la plus haute.
+    def _candidats_equilibree(ignorer_eviter=False):
+        cands = [
+            o for o in out
+            if o['code'] in CODES_EQUILIBREE
+            and o['code'] not in codes_pris
+            and (ignorer_eviter or o['code'] not in eviter)
+        ]
+        cands.sort(key=lambda o: -float(o.get('probabilite') or 0))
+        return cands
+
+    eq_cands = _candidats_equilibree(False)
+    if not eq_cands and eviter:
+        eq_cands = _candidats_equilibree(True)
+    if eq_cands:
+        _poser(eq_cands[0], 'equilibree')
+
+    for niveau in ('prudente', 'audacieuse'):
         candidats = _candidats(niveau, ignorer_eviter=False)
         if not candidats and eviter:
             candidats = _candidats(niveau, ignorer_eviter=True)
         if not candidats:
             continue
-        choisi = candidats[0]
-        choisi['niveau'] = niveau
-        familles_prises.add(choisi['famille'])
-        codes_pris.add(choisi['code'])
-        formes_prises.add(choisi['forme'])
-        compteur[choisi['forme']] += 1
+        _poser(candidats[0], niveau)
 
     # Recommandée : même famille que la prudente, probabilité max hors filet.
     prudente = next((o for o in out if o.get('niveau') == 'prudente'), None)
@@ -612,7 +635,7 @@ def classer_journee(analyses):
     sels = [selections_niveaux(a['options']) for a in analyses]
     exclus = set()
     if len(sels) >= 3 and uniformite_excessive(sels):
-        for niveau in ('prudente', 'equilibree', 'audacieuse'):
+        for niveau in ('prudente', 'audacieuse'):
             codes = [s.get(niveau) for s in sels if s.get(niveau)]
             if not codes:
                 continue
@@ -638,7 +661,8 @@ def uniformite_excessive(selections, seuil=1 / 3):
     if not selections:
         return False
     n = len(selections)
-    for niveau in ('prudente', 'equilibree', 'audacieuse'):
+    # Équilibrée est toujours DC_1X/DC_X2 : hors détecteur d’uniformité.
+    for niveau in ('prudente', 'audacieuse'):
         codes = [s.get(niveau) for s in selections if s.get(niveau)]
         if not codes:
             continue

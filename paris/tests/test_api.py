@@ -45,6 +45,22 @@ class ApiMatchsQueriesTests(TestCase):
                     niveau=niv, origine='calcul',
                 )
 
+    def test_filtre_pays(self):
+        liga = Competition.objects.create(
+            code='LIGA', nom='LaLiga', pays='Espagne', ordre=30,
+        )
+        d = Equipe.objects.get(slug='psg')
+        e = Equipe.objects.create(nom='Barça', nom_court='Barça', slug='barca-test')
+        Match.objects.create(
+            competition=liga, domicile=d, exterieur=e,
+            coup_denvoi=timezone.now(), journee='J1', sofascore_id=900099,
+        )
+        r = self.client.get('/api/v1/matchs/', {'pays': 'Espagne'})
+        self.assertEqual(r.status_code, 200)
+        codes = {row['competition']['code'] for row in r.json()['results']}
+        self.assertEqual(codes, {'LIGA'})
+        self.assertTrue(all(row['competition']['pays'] == 'Espagne' for row in r.json()['results']))
+
     def test_liste_moins_de_six_requetes(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext

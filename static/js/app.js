@@ -220,7 +220,7 @@ function icon(name, cls) {
 
 /** Drapeaux SVG (hors ligne) — code ligue ou pays. */
 const FLAG_BY_CODE = {
-  UCL: 'eu',
+  UCL: 'eu', UEL: 'uel',
   PL: 'gb', FAC: 'gb', EFL: 'gb',
   LIGA: 'es', CDR: 'es',
   BL: 'de', DFB: 'de',
@@ -243,6 +243,18 @@ const FLAG_SVG = {
     let stars = '';
     for (let i = 0; i < 12; i += 1) stars += star(i * 30);
     return '<rect width="36" height="36" fill="#003399"/>' + stars;
+  })(),
+  // Ligue Europa — orange (distinct de l’UCL bleue)
+  uel: (() => {
+    const star = (a) => {
+      const r = 7.4;
+      const x = 18 + r * Math.cos((a - 90) * Math.PI / 180);
+      const y = 18 + r * Math.sin((a - 90) * Math.PI / 180);
+      return `<path fill="#FFF8F0" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(0.32)" d="M0-7.2 1.6-2.3h5.2l-4.2 3 1.6 4.9L0 2.6l-4.2 3 1.6-4.9-4.2-3h5.2z"/>`;
+    };
+    let stars = '';
+    for (let i = 0; i < 12; i += 1) stars += star(i * 30);
+    return '<rect width="36" height="36" fill="#E87722"/>' + stars;
   })(),
   gb: '<rect width="36" height="36" fill="#012169"/>'
     + '<path d="M0 0l36 36M36 0L0 36" stroke="#fff" stroke-width="7.2"/>'
@@ -320,7 +332,11 @@ function matchFiltreCompetition(m, filtre) {
   return true;
 }
 
-async function getJSON(url, { timeoutMs = 8000 } = {}) {
+function estNavigateurHorsLigne() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+async function getJSON(url, { timeoutMs = 10000 } = {}) {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   try {
@@ -333,9 +349,17 @@ async function getJSON(url, { timeoutMs = 8000 } = {}) {
     const fromCache = res.headers.get('X-SW-Cache') === '1';
     const data = await res.json().catch(() => null);
     return { data, fromCache, ok: res.ok, status: res.status, offline: false };
-  } catch (_) {
+  } catch (err) {
     if (timer) clearTimeout(timer);
-    return { data: null, fromCache: false, ok: false, status: 0, offline: true };
+    // Timeout / 5xx SW / serveur lent ≠ hors ligne. Seulement navigator.onLine.
+    return {
+      data: null,
+      fromCache: false,
+      ok: false,
+      status: 0,
+      offline: estNavigateurHorsLigne(),
+      aborted: !!(err && err.name === 'AbortError'),
+    };
   }
 }
 
@@ -347,6 +371,23 @@ function lireCacheMatchs(cle) {
     const entry = bag && bag[cle];
     if (!entry || !Array.isArray(entry.results)) return null;
     return entry;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Dernière liste matchs en cache (clé exacte ou plus récente). */
+function lireCacheMatchsFlexible(cle) {
+  const exact = lireCacheMatchs(cle);
+  if (exact && exact.results && exact.results.length) return exact;
+  try {
+    const bag = JSON.parse(localStorage.getItem(LS_MATCHS) || '{}') || {};
+    let best = null;
+    for (const entry of Object.values(bag)) {
+      if (!entry || !Array.isArray(entry.results) || !entry.results.length) continue;
+      if (!best || String(entry.savedAt || '') > String(best.savedAt || '')) best = entry;
+    }
+    return best;
   } catch (_) {
     return null;
   }
@@ -460,10 +501,15 @@ function zanalyz() {
     filtreDate: (() => {
       const auj = dateLocaleISO(new Date());
       const saved = localStorage.getItem(LS_DATE) || '';
-      // Date passée en localStorage → on oublie (évite une liste vide « coincée »).
+      // Garde les dates passées récentes (bilans) ; oublie seulement > 21 jours.
       if (saved && saved < auj) {
-        localStorage.removeItem(LS_DATE);
-        return '';
+        const lim = new Date();
+        lim.setDate(lim.getDate() - 21);
+        const limIso = dateLocaleISO(lim);
+        if (saved < limIso) {
+          localStorage.removeItem(LS_DATE);
+          return '';
+        }
       }
       return saved;
     })(),
@@ -490,14 +536,12 @@ function zanalyz() {
     estVip: false,
     estAdmin: false,
     pointsPremium: 0,
-    gradePremium: 'rookie',
+    gradePremium: 'mougou',
     authShowPass: false,
     whatsappVipUrl: '',
     vipTarifLibelle: 'Premium Zanalyze',
     sheetVip: false,
-    cacheBanner: false,
-    cacheLabel: '',
-    horsLigne: typeof navigator !== 'undefined' ? !navigator.onLine : false,
+    horsLigne: false,
     engineMeta: null,
     syncBusy: false,
     dernierRafraichissement: localStorage.getItem(LS_REFRESH) ? fmtCache(localStorage.getItem(LS_REFRESH)) : '',
@@ -577,12 +621,20 @@ function zanalyz() {
         this.horsLigne = false;
         this.rafraichirDonnees(false);
       });
-      window.addEventListener('offline', () => { this.horsLigne = true; });
+      window.addEventListener('offline', () => {
+        if (estNavigateurHorsLigne()) this.horsLigne = true;
+      });
+      // Corrige un faux « hors ligne » laissé par un ancien onglet / SW.
+      if (!estNavigateurHorsLigne()) this.horsLigne = false;
       this.ecouterInstallPWA();
       this.enregistrerSW();
       await this.chargerInfo();
-      // Tire le snapshot Engine si périmé (ne bloque pas longtemps grâce au throttle serveur).
-      await this.syncEngine(false);
+      // Import snapshot en arrière-plan : ne doit jamais bloquer le premier affichage.
+      this.syncEngine(false).then((r) => {
+        if (r && r.ok && !r.skipped && this.page === 'matchs') {
+          this.chargerMatchs({ forceNetwork: true });
+        }
+      }).catch(() => {});
       await this.chargerCompetitions();
       await this.routeData();
       this.demarrerUnreadPoll();
@@ -635,14 +687,28 @@ function zanalyz() {
       const name = { visiteur: 'eye', membre: 'badge-check', vip: 'crown', premium: 'crown' }[c] || 'eye';
       return icon(name, 'icon icon-sm');
     },
+    iconGrade(code) {
+      const name = {
+        mougou: 'eye',
+        zanalyste: 'badge-check',
+        ndoss: 'zap',
+        boss: 'crown',
+        rookie: 'eye',
+        analyste: 'badge-check',
+        stratege: 'zap',
+        oracle: 'crown',
+      }[code || this.gradePremium] || 'badge-check';
+      return icon(name, 'icon icon-sm');
+    },
 
     async chargerInfo() {
       try {
-        const { data, offline } = await getJSON('/api/v1/info/');
-        if (offline) {
+        const { data, offline, ok } = await getJSON('/api/v1/info/', { timeoutMs: 10000 });
+        if (offline && estNavigateurHorsLigne()) {
           this.horsLigne = true;
           return;
         }
+        if (!ok || !data) return;
         this.horsLigne = false;
         this.authentifie = !!(data && data.authentifie);
         this.username = data && data.username;
@@ -662,10 +728,14 @@ function zanalyz() {
     },
 
     async syncEngine(force = false) {
-      if (this.syncBusy || this.horsLigne || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      if (this.syncBusy || estNavigateurHorsLigne()) {
         return { ok: false, skipped: true };
       }
       this.syncBusy = true;
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      // force : un peu plus long ; sinon court pour ne pas figer l’UI.
+      const timeoutMs = force ? 20000 : 8000;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
       try {
         const res = await fetch('/api/v1/sync/engine/', {
           method: 'POST',
@@ -676,12 +746,15 @@ function zanalyz() {
             'X-CSRFToken': csrf(),
           },
           body: JSON.stringify({ force: !!force }),
+          signal: ctrl ? ctrl.signal : undefined,
         });
+        if (timer) clearTimeout(timer);
         const data = await res.json().catch(() => ({}));
         if (data && (data.exporte_le || data.importe_le)) this.engineMeta = data;
         return data || { ok: res.ok };
       } catch (_) {
-        this.horsLigne = true;
+        if (timer) clearTimeout(timer);
+        // Timeout / réseau : ne pas forcer le mode hors-ligne (les matchs peuvent déjà être là).
         return { ok: false, reason: 'offline' };
       } finally {
         this.syncBusy = false;
@@ -1072,11 +1145,7 @@ function zanalyz() {
     },
 
     noterCache(fromCache) {
-      if (fromCache && localStorage.getItem(LS_REFRESH)) {
-        this.cacheBanner = true;
-        this.cacheLabel = fmtCache(localStorage.getItem(LS_REFRESH));
-      } else {
-        this.cacheBanner = false;
+      if (!fromCache) {
         const now = new Date().toISOString();
         localStorage.setItem(LS_REFRESH, now);
         this.dernierRafraichissement = fmtCache(now);
@@ -1099,31 +1168,48 @@ function zanalyz() {
       const token = ++this._matchReq;
       const filtreActif = this.filtre;
       const garderListe = this.matchs && this.matchs.length;
-      this.chargement = !garderListe;
+      const q = new URLSearchParams();
+      const auj = this.dateAujourdhui();
+      const dateCible = this.filtreDate || auj;
+      const jourUnique = !!this.filtreDate;
+      const inclureTermines = dateCible <= auj;
+      q.set(
+        'statut',
+        inclureTermines ? 'termine,en_cours,a_venir,reporte' : 'a_venir,en_cours',
+      );
+      // Assez large pour une journée complète (bilans + à venir) ou un pays.
+      q.set('page_size', '100');
+      const apiComp = this.filtreApiCompetition();
+      if (apiComp) q.set('competition', apiComp);
+      const apiPays = this.filtreApiPays();
+      if (apiPays) q.set('pays', apiPays);
+      q.set('depuis', dateCible);
+      if (jourUnique) q.set('jusqu_a', this.filtreDate);
+      const cacheKey = q.toString() + '|f=' + (filtreActif || '');
+
+      const cachedExact = lireCacheMatchs(cacheKey);
+      if (cachedExact && cachedExact.results.length) {
+        this.matchs = cachedExact.results;
+        this.chargement = false;
+      } else {
+        this.chargement = !garderListe;
+      }
+
       try {
-        const q = new URLSearchParams();
-        const auj = this.dateAujourdhui();
-        const datePassee = !!(this.filtreDate && this.filtreDate < auj);
-        // Jour passé : afficher résultats + tips pour évaluer le moteur.
-        q.set('statut', datePassee ? 'termine,en_cours,a_venir,reporte' : 'a_venir,en_cours');
-        const modeFiltre = parseFiltre(filtreActif).mode;
-        q.set('page_size', modeFiltre === 'pays' || datePassee ? '120' : '50');
-        const apiComp = this.filtreApiCompetition();
-        if (apiComp) q.set('competition', apiComp);
-        const depuis = this.filtreDate || auj;
-        q.set('depuis', depuis);
-        if (this.filtreDate) q.set('jusqu_a', this.filtreDate);
-        const cacheKey = q.toString() + '|f=' + (filtreActif || '');
-        const { data, fromCache, offline, ok } = await getJSON('/api/v1/matchs/?' + q.toString());
+        const { data, fromCache, offline, ok } = await getJSON(
+          '/api/v1/matchs/?' + q.toString(),
+          { timeoutMs: 12000 },
+        );
         if (token !== this._matchReq) return;
         if (offline || !ok || !data) {
-          this.horsLigne = offline || this.horsLigne;
-          const cached = lireCacheMatchs(cacheKey);
-          if (cached) {
+          if (offline && estNavigateurHorsLigne()) this.horsLigne = true;
+          // Jamais de cache « flexible » si une date est choisie (évite Hier ≠ matchs affichés).
+          const cached = this.filtreDate
+            ? lireCacheMatchs(cacheKey)
+            : (lireCacheMatchs(cacheKey) || lireCacheMatchsFlexible(cacheKey));
+          if (cached && cached.results.length) {
             this.matchs = cached.results;
-            this.cacheBanner = true;
-            this.cacheLabel = fmtCache(cached.savedAt);
-          } else if (!garderListe) {
+          } else if (!garderListe && !(this.matchs && this.matchs.length)) {
             this.matchs = [];
           }
           return;
@@ -1138,8 +1224,10 @@ function zanalyz() {
           list = list.filter((m) => dateLocaleISO(m.coup_denvoi) === this.filtreDate);
         } else {
           list = list.filter((m) => {
-            if (!(m.statut === 'a_venir' || m.statut === 'en_cours')) return false;
-            return dateLocaleISO(m.coup_denvoi) >= auj;
+            const d = dateLocaleISO(m.coup_denvoi);
+            if (m.statut === 'termine') return d === auj;
+            if (m.statut === 'a_venir' || m.statut === 'en_cours') return d >= auj;
+            return false;
           });
         }
         list.sort((a, b) => new Date(a.coup_denvoi) - new Date(b.coup_denvoi));
@@ -1147,7 +1235,7 @@ function zanalyz() {
         ecrireCacheMatchs(cacheKey, list);
       } catch (_) {
         if (token !== this._matchReq) return;
-        if (!garderListe) this.matchs = [];
+        if (!garderListe && !(this.matchs && this.matchs.length)) this.matchs = [];
       } finally {
         if (token === this._matchReq) this.chargement = false;
       }
@@ -1169,7 +1257,10 @@ function zanalyz() {
 
     tipsHisto(m) {
       const ordre = { prudente: 0, recommandee: 1, filet: 2, equilibree: 3, audacieuse: 4 };
-      let opts = (m.options || []).filter((o) => o.niveau in ordre);
+      const raw = (m.options && m.options.length)
+        ? m.options
+        : ((m.analyse && m.analyse.options) || []);
+      let opts = raw.filter((o) => o.niveau in ordre);
       // Non-admin : uniquement prudent + sécurité sur les matchs passés.
       if (m.statut === 'termine' && !this.peutBilanComplet) {
         opts = opts.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
@@ -1189,13 +1280,11 @@ function zanalyz() {
       try {
         const { data, fromCache, offline, ok } = await getJSON('/api/v1/matchs/' + id + '/');
         if (offline || !ok || !data) {
-          this.horsLigne = offline || this.horsLigne;
+          if (offline && estNavigateurHorsLigne()) this.horsLigne = true;
           try {
             const raw = localStorage.getItem(LS_FICHE_PREFIX + id);
             if (raw) {
               this.fiche = JSON.parse(raw);
-              this.cacheBanner = true;
-              this.cacheLabel = 'hors ligne';
             }
           } catch (_) { /* ignore */ }
           return;
@@ -1264,6 +1353,11 @@ function zanalyz() {
       return f.mode === 'comp' ? f.code : '';
     },
 
+    filtreApiPays() {
+      const f = parseFiltre(this.filtre);
+      return f.mode === 'pays' ? f.pays : '';
+    },
+
     filtrePaysSelectionne() {
       const f = parseFiltre(this.filtre);
       if (f.mode === 'pays') return f.pays;
@@ -1281,11 +1375,14 @@ function zanalyz() {
     get filtresPrincipaux() {
       const comps = this.competitions || [];
       const out = [];
-      const ucl = comps.find((c) => c.code === 'UCL');
-      if (ucl) out.push({ kind: 'ucl', comp: ucl });
+      const europeCodes = ['UCL', 'UEL'];
+      for (const code of europeCodes) {
+        const comp = comps.find((c) => c.code === code);
+        if (comp) out.push({ kind: 'europe', comp });
+      }
       const byPays = new Map();
       for (const c of comps) {
-        if (c.code === 'UCL') continue;
+        if (europeCodes.includes(c.code)) continue;
         const pays = c.pays || 'Autre';
         if (!byPays.has(pays)) byPays.set(pays, []);
         byPays.get(pays).push(c);
@@ -1323,6 +1420,16 @@ function zanalyz() {
 
     dateAujourdhui() {
       return dateLocaleISO(new Date());
+    },
+
+    dateHier() {
+      const auj = this.dateAujourdhui();
+      const parts = auj.split('-').map(Number);
+      if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return auj;
+      const [y, m, d] = parts;
+      const utc = new Date(Date.UTC(y, m - 1, d));
+      utc.setUTCDate(utc.getUTCDate() - 1);
+      return utc.toISOString().slice(0, 10);
     },
 
     allerAccueil() {
@@ -1365,7 +1472,8 @@ function zanalyz() {
     get groupes() {
       const map = new Map();
       for (const m of this.matchs) {
-        const cle = new Date(m.coup_denvoi).toISOString().slice(0, 10);
+        const cle = dateLocaleISO(m.coup_denvoi);
+        if (!cle) continue;
         if (!map.has(cle)) map.set(cle, { cle, label: fmtJour(m.coup_denvoi), matchs: [] });
         map.get(cle).matchs.push(m);
       }
@@ -1555,7 +1663,7 @@ function zanalyz() {
       return {
         prudente: 'Niveau Prudent : forte probabilité (70–90 %). Priorité à la stabilité.',
         recommandee: 'Niveau Recommandé : même famille que le tip prudent, probabilité la plus élevée hors tip principale.',
-        equilibree: 'Niveau Équilibrée : zone intermédiaire (55–70 %). Compromis chance / cote.',
+        equilibree: 'Niveau Équilibrée : double chance 1X ou X2, selon la probabilité la plus élevée.',
         audacieuse: 'Niveau Audacieuse : plus risqué (28–50 %). À manier avec une mise réduite.',
         filet: 'Niveau Sécurité : repli sûr si le tip principal rate.',
       }[n] || '';
@@ -1867,9 +1975,8 @@ function zanalyz() {
       this.apercu = null;
       this.partageMsg = '';
       this.composExpanded = false;
-      if (!this.jourDate) {
-        this.jourDate = this.filtreDate || dateLocaleISO(new Date());
-      }
+      // Aligner sur le filtre date de la liste (bilans du jour passé inclus).
+      this.jourDate = this.filtreDate || dateLocaleISO(new Date());
       this.sheetCompos = true;
       document.body.classList.add('sheet-open');
       await this.chargerPredictionsJour();
@@ -1919,8 +2026,9 @@ function zanalyz() {
       const passe = jour < auj;
       this.jourPasseCompos = passe;
       const q = new URLSearchParams();
-      q.set('statut', passe ? 'termine' : 'a_venir,en_cours');
-      q.set('page_size', '50');
+      // Aujourd'hui : garder les terminés (bilans) + à venir.
+      q.set('statut', passe ? 'termine' : 'termine,a_venir,en_cours');
+      q.set('page_size', '80');
       q.set('depuis', jour);
       q.set('jusqu_a', jour);
       const { data, ok } = await getJSON('/api/v1/matchs/?' + q.toString());
@@ -1930,6 +2038,7 @@ function zanalyz() {
       const list = (data && data.results) || [];
       this.predictionsJour = list
         .map((m) => {
+          const termine = m.statut === 'termine';
           let options = (m.options || [])
             .filter((o) => (
               o.niveau === 'prudente'
@@ -1937,7 +2046,7 @@ function zanalyz() {
               || o.niveau === 'filet'
             ))
             .sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
-          if (passe && !this.peutBilanComplet) {
+          if (termine && !this.peutBilanComplet) {
             options = options.filter((o) => o.niveau === 'prudente' || o.niveau === 'filet');
           }
           const prudente = options.find((o) => o.niveau === 'prudente') || null;
@@ -1955,9 +2064,10 @@ function zanalyz() {
             prudente,
             recommandee,
             filet,
+            termine,
           };
         })
-        .filter((m) => m.prudente || m.recommandee || m.filet);
+        .filter((b) => b.prudente || b.recommandee || b.filet);
     },
 
     textePredictionsJour() {
@@ -1969,7 +2079,7 @@ function zanalyz() {
           + (m.score ? ' (' + m.score + ')' : ''),
         );
         m.options.forEach((o) => {
-          if (this.jourPasseCompos) {
+          if (m.termine || this.jourPasseCompos) {
             lignes.push(
               '  ' + this.libNiveau(o.niveau) + ' : ' + o.libelle
               + ' → ' + this.libResultatTip(o),

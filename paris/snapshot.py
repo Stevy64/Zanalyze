@@ -258,17 +258,23 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
         )
         stats['competitions'] += 1
 
+    equipes_par_slug: dict[str, Equipe] = {}
     for e in data.get('equipes') or []:
-        _upsert_equipe(e)
+        eq = _upsert_equipe(e)
         stats['equipes'] += 1
+        if e.get('slug'):
+            equipes_par_slug[e['slug']] = eq
+        equipes_par_slug[eq.slug] = eq
 
     for m in data.get('matchs') or []:
         sid = m.get('sofascore_id')
         if not sid:
             continue
         competition = Competition.objects.get(code=m['competition_code'])
-        domicile = Equipe.objects.get(slug=m['domicile_slug'])
-        exterieur = Equipe.objects.get(slug=m['exterieur_slug'])
+        domicile = equipes_par_slug.get(m['domicile_slug'])
+        exterieur = equipes_par_slug.get(m['exterieur_slug'])
+        if domicile is None or exterieur is None:
+            continue
         coup = parse_datetime(m['coup_denvoi'])
         if coup is None:
             continue

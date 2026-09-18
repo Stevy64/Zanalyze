@@ -123,6 +123,25 @@ def test_1x2_lock_trop_court_non_eligible():
     assert not est_eligible(un)
 
 
+def test_equilibree_toujours_dc_1x_ou_x2():
+    """Équilibrée = double chance 1X ou X2, proba la plus élevée."""
+    cas = [
+        ((1.45, 4.20, 7.50), (1.70, 2.20)),
+        ((2.10, 3.40, 3.40), (1.90, 1.95)),
+        ((3.10, 3.30, 2.30), (1.90, 1.95)),
+        ((6.50, 4.40, 1.50), (1.65, 2.30)),
+    ]
+    for c1x2, ou in cas:
+        a = analyser(c1x2, ou, 'A', 'B')
+        out = choisir_trois(a['options'], a['profil'], moyennes_par_code([a['options']]))
+        eq = next(o for o in out if o['niveau'] == 'equilibree')
+        assert eq['code'] in ('DC_1X', 'DC_X2')
+        dc_1x = next(o for o in out if o['code'] == 'DC_1X')
+        dc_x2 = next(o for o in out if o['code'] == 'DC_X2')
+        attendu = 'DC_1X' if dc_1x['probabilite'] >= dc_x2['probabilite'] else 'DC_X2'
+        assert eq['code'] == attendu
+
+
 def test_filet_exclu_du_classement():
     a = analyser((2.10, 3.40, 3.40), (1.90, 1.95), 'A', 'B')
     moy = moyennes_par_code([a['options']])
@@ -232,7 +251,8 @@ def test_plafond_forme_sur_journee():
     formes = Counter()
     for a in analyses:
         for o in a['options']:
-            if o['niveau'] in ('prudente', 'equilibree', 'audacieuse'):
+            # Équilibrée = toujours 1X/X2 : hors plafond de formes.
+            if o['niveau'] in ('prudente', 'audacieuse'):
                 formes[forme_pari(o['code'], o['libelle'])] += 1
     assert formes
     assert max(formes.values()) <= 3

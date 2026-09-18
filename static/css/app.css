@@ -607,6 +607,10 @@ button { cursor: pointer; }
   background: var(--accent);
   color: #fff;
 }
+.puce.puce-uel.on {
+  background: #e87722;
+  color: #fff;
+}
 .puce.puce-comp {
   display: inline-flex;
   align-items: center;

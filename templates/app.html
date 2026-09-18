@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=83">
+  <link rel="stylesheet" href="/static/css/app.css?v=90">
 </head>
 <body
   x-data="zanalyz()"
@@ -50,10 +50,6 @@
   </nav>
 
   <div class="banners">
-    <div class="banner" x-show="cacheBanner" x-cloak role="status">
-      Données du <span x-text="cacheLabel"></span>
-      <button type="button" class="btn-text" @click="rafraichirDonnees(true)">Actualiser</button>
-    </div>
     <div class="banner banner-offline" x-show="horsLigne" x-cloak role="status">
       Hors ligne — affichage des dernières données enregistrées.
     </div>
@@ -105,18 +101,19 @@
             :aria-selected="filtre === ''"
             :class="filtre === '' ? 'puce on' : 'puce'"
             @click="setFiltre('')">Tous</button>
-          <template x-for="bloc in filtresPrincipaux" :key="bloc.kind === 'ucl' ? 'UCL' : bloc.pays">
+          <template x-for="bloc in filtresPrincipaux" :key="bloc.kind === 'europe' ? bloc.comp.code : bloc.pays">
             <button type="button" role="tab" class="puce-comp"
               :class="[
-                (bloc.kind === 'ucl' ? filtre === 'UCL' : isFiltrePaysActif(bloc.pays)) ? 'puce on' : 'puce',
+                (bloc.kind === 'europe' ? filtre === bloc.comp.code : isFiltrePaysActif(bloc.pays)) ? 'puce on' : 'puce',
                 bloc.kind === 'pays' ? 'puce-pays' : '',
+                bloc.kind === 'europe' && bloc.comp.code === 'UEL' ? 'puce-uel' : '',
               ]"
-              :aria-selected="bloc.kind === 'ucl' ? filtre === 'UCL' : isFiltrePaysActif(bloc.pays)"
-              :aria-label="bloc.kind === 'ucl' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
-              :title="bloc.kind === 'ucl' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
-              @click="bloc.kind === 'ucl' ? setFiltre('UCL') : setFiltrePays(bloc.pays)">
-              <span class="flag-wrap" x-html="bloc.kind === 'ucl' ? drapeauComp(bloc.comp) : drapeauPays(bloc.pays)"></span>
-              <span x-show="bloc.kind === 'ucl'" x-text="bloc.comp.code"></span>
+              :aria-selected="bloc.kind === 'europe' ? filtre === bloc.comp.code : isFiltrePaysActif(bloc.pays)"
+              :aria-label="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
+              :title="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
+              @click="bloc.kind === 'europe' ? setFiltre(bloc.comp.code) : setFiltrePays(bloc.pays)">
+              <span class="flag-wrap" x-html="bloc.kind === 'europe' ? drapeauComp(bloc.comp) : drapeauPays(bloc.pays)"></span>
+              <span x-show="bloc.kind === 'europe'" x-text="bloc.comp.code"></span>
             </button>
           </template>
         </div>
@@ -128,7 +125,10 @@
             @click="setFiltre('pays:' + filtrePaysSelectionne())">Tout</button>
           <template x-for="c in sousFiltresComp" :key="c.code">
             <button type="button" role="tab" class="puce puce-sous"
-              :class="filtre === c.code ? 'on' : ''"
+              :class="[
+                filtre === c.code ? 'on' : '',
+                c.code === 'UEL' ? 'puce-uel' : '',
+              ]"
               :aria-selected="filtre === c.code"
               :aria-label="c.nom"
               :title="c.nom"
@@ -145,16 +145,15 @@
           </label>
           <button type="button" class="puce" :class="filtreDate === dateAujourdhui() ? 'on' : ''"
             @click="setFiltreDate(dateAujourdhui())">Aujourd’hui</button>
+          <button type="button" class="puce" :class="filtreDate === dateHier() ? 'on' : ''"
+            @click="setFiltreDate(dateHier())">Hier</button>
           <button type="button" class="puce" x-show="filtreDate" x-cloak
             @click="setFiltreDate('')">Toutes dates</button>
         </div>
-        <p class="hint hint-logos">
+        <p class="hint hint-logos" x-show="!(filtreDate && filtreDate < dateAujourdhui())">
           <span x-html="icon('info','icon icon-sm')"></span>
-          <span x-show="!(filtreDate && filtreDate < dateAujourdhui())">
+          <span>
             Touche un <strong>blason</strong> pour voir forme, classement et matchs récents.
-          </span>
-          <span x-show="filtreDate && filtreDate < dateAujourdhui()" x-cloak>
-            Jour passé : score final + tips pour évaluer le moteur. Touche une carte pour le détail.
           </span>
         </p>
 
@@ -878,7 +877,7 @@
                       <span x-text="pointsPremium + ' pts'"></span>
                     </span>
                     <span class="challenge-pill grade">
-                      <span class="challenge-pill-ico" x-html="icon('badge-check','icon icon-sm')"></span>
+                      <span class="challenge-pill-ico" x-html="iconGrade(gradePremium)"></span>
                       <span x-text="libGrade(gradePremium)"></span>
                     </span>
                   </div>
@@ -900,7 +899,7 @@
                     <p class="challenge-reste" x-show="!progression.objectif.atteint_max" x-cloak
                       x-text="progression.objectif.reste_libelle || (progression.objectif.reste + ' pts restants pour devenir ' + progression.objectif.prochain_libelle)"></p>
                     <p class="challenge-reste max" x-show="progression.objectif.atteint_max" x-cloak>
-                      Grade max atteint — reste actif pour le garder.
+                      Grade max (Boss) — reste actif : −1 pt / 24 h sans activité.
                     </p>
                   </div>
                 </template>
@@ -1185,8 +1184,8 @@
                   <span class="flag-wrap" x-html="drapeauComp(bloc.competition)"></span>
                   <span x-text="bloc.competition.code"></span>
                 </span>
-                <span class="cj-horaire" x-show="!jourPasseCompos" x-text="heure(bloc.coup_denvoi)"></span>
-                <span class="cj-horaire" x-show="jourPasseCompos" x-cloak x-text="bloc.score || '—'"></span>
+                <span class="cj-horaire" x-show="!bloc.termine && !jourPasseCompos" x-text="heure(bloc.coup_denvoi)"></span>
+                <span class="cj-horaire" x-show="bloc.termine || jourPasseCompos" x-cloak x-text="bloc.score || '—'"></span>
               </div>
               <div class="cj-teams">
                 <div class="cj-club">
@@ -1226,14 +1225,14 @@
                     <span class="pred-lib" x-text="bloc.prudente && bloc.prudente.libelle"></span>
                   </div>
                   <strong class="pred-pct"
-                    x-show="!jourPasseCompos"
+                    x-show="!(bloc.termine || jourPasseCompos)"
                     x-text="bloc.prudente && fmtPct(bloc.prudente.probabilite)"></strong>
-                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                  <strong class="bilan-pill-sm" x-show="bloc.termine || jourPasseCompos" x-cloak
                     x-text="bloc.prudente && libResultatTip(bloc.prudente)"></strong>
                 </button>
                 <button type="button" class="compos-opt pred-recommandee"
                   :class="!peutVip ? 'is-locked' : ''"
-                  x-show="bloc.recommandee && (!jourPasseCompos || peutBilanComplet)" x-cloak
+                  x-show="bloc.recommandee && (!(bloc.termine || jourPasseCompos) || peutBilanComplet)" x-cloak
                   @click="ouvrirJustif(bloc, bloc.recommandee)"
                   :aria-label="'Justification : ' + (bloc.recommandee && bloc.recommandee.libelle)">
                   <span class="pred-mark" aria-hidden="true" x-html="icon('trending')"></span>
@@ -1247,9 +1246,9 @@
                     <span class="pred-lib" x-text="bloc.recommandee && bloc.recommandee.libelle"></span>
                   </div>
                   <strong class="pred-pct"
-                    x-show="!jourPasseCompos"
+                    x-show="!(bloc.termine || jourPasseCompos)"
                     x-text="bloc.recommandee && fmtPct(bloc.recommandee.probabilite)"></strong>
-                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                  <strong class="bilan-pill-sm" x-show="bloc.termine || jourPasseCompos" x-cloak
                     x-text="bloc.recommandee && libResultatTip(bloc.recommandee)"></strong>
                 </button>
                 <button type="button" class="compos-opt pred-filet"
@@ -1268,9 +1267,9 @@
                     <span class="pred-lib" x-text="bloc.filet && bloc.filet.libelle"></span>
                   </div>
                   <strong class="pred-pct"
-                    x-show="!jourPasseCompos"
+                    x-show="!(bloc.termine || jourPasseCompos)"
                     x-text="bloc.filet && fmtPct(bloc.filet.probabilite)"></strong>
-                  <strong class="bilan-pill-sm" x-show="jourPasseCompos" x-cloak
+                  <strong class="bilan-pill-sm" x-show="bloc.termine || jourPasseCompos" x-cloak
                     x-text="bloc.filet && libResultatTip(bloc.filet)"></strong>
                 </button>
               </div>
@@ -1851,7 +1850,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=83"></script>
+  <script defer src="/static/js/app.js?v=91"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

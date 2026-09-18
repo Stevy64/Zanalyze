@@ -1,8 +1,8 @@
-const CACHE = 'paris-v83';
+const CACHE = 'paris-v91';
 const PRECACHE = [
   '/manifest.webmanifest',
-  '/static/css/app.css?v=83',
-  '/static/js/app.js?v=83',
+  '/static/css/app.css?v=90',
+  '/static/js/app.js?v=90',
   '/static/vendor/alpine.min.js?v=60',
   '/static/img/hero-accueil.jpg',
   '/static/brand/zanalyze-logo.png',
@@ -51,15 +51,20 @@ async function staleWhileRevalidate(request) {
   const network = fetch(request).then((res) => {
     if (res && res.ok) cache.put(request, res.clone());
     return res;
-  }).catch(() => cached);
+  }).catch(() => null);
   if (cached) {
     network.catch(() => {});
     return withCacheFlag(cached);
   }
-  return network;
+  const fresh = await network;
+  if (fresh) return fresh;
+  return new Response(JSON.stringify({ detail: 'unavailable' }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
-async function networkFirst(request, { flagCache, timeoutMs = 4500 } = {}) {
+async function networkFirst(request, { flagCache, timeoutMs = 3500 } = {}) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(request);
   const controller = new AbortController();
@@ -111,8 +116,13 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (path.startsWith('/api/')) {
-    // API : réseau rapide, sinon cache (mode hors-ligne / latence).
-    event.respondWith(networkFirst(req, { flagCache: true, timeoutMs: 5000 }));
+    // Listes matchs : cache immédiat + revalidation (évite le spinner hors-ligne).
+    if (path.startsWith('/api/v1/matchs') && !path.includes('/resultat')) {
+      event.respondWith(staleWhileRevalidate(req));
+      return;
+    }
+    // Autres API : réseau rapide, sinon cache.
+    event.respondWith(networkFirst(req, { flagCache: true, timeoutMs: 3500 }));
     return;
   }
 
