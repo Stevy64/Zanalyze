@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from paris.chat import messages_actifs, purger_messages_expires
-from paris.models import MessageChat, Profil, ReglageSite
+from paris.models import MSG_DEMANDE_PREMIUM, MessageChat, Profil, ReglageSite
 from paris.roles import categorie_user, est_vip, payload_auth
 from paris.vip import ajouter_mois
 
@@ -167,6 +167,7 @@ class InfoWhatsappTests(TestCase):
         cfg = ReglageSite.get_solo()
         cfg.whatsapp_phone = '33612345678'
         cfg.whatsapp_message = 'Bonjour VIP'
+        cfg.whatsapp_url = ''
         cfg.vip_tarif_libelle = 'VIP — test'
         cfg.save()
         client = APIClient()
@@ -174,3 +175,68 @@ class InfoWhatsappTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn('wa.me/33612345678', r.data.get('whatsapp_vip_url', ''))
         self.assertEqual(r.data.get('vip_tarif_libelle'), 'VIP — test')
+
+    def test_lien_whatsapp_inclut_pseudo_zanalyste(self):
+        from django.contrib.auth import get_user_model
+        from urllib.parse import unquote
+
+        User = get_user_model()
+        user = User.objects.create_user('Stevy64', password='x')
+        cfg = ReglageSite.get_solo()
+        cfg.whatsapp_phone = '24106123456'
+        cfg.whatsapp_message = (
+            'Bonjour, je suis {pseudo}, Zanalyste sur Zanalyze. '
+            'Je souhaite devenir Premium.'
+        )
+        cfg.whatsapp_url = ''
+        cfg.save()
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get('/api/v1/info/')
+        self.assertEqual(r.status_code, 200)
+        url = unquote(r.data.get('whatsapp_vip_url') or '')
+        self.assertIn('wa.me/24106123456', url)
+        self.assertIn('Stevy64', url)
+        self.assertIn('Zanalyste', url)
+        self.assertIn('Zanalyze', url)
+        self.assertNotIn('Cleared2Bet', url)
+
+    def test_whatsapp_url_statique_ne_bloque_pas_le_pseudo(self):
+        from django.contrib.auth import get_user_model
+        from urllib.parse import unquote
+
+        User = get_user_model()
+        user = User.objects.create_user('ZanAlpha', password='x')
+        cfg = ReglageSite.get_solo()
+        # Contourne save() pour simuler l’ancien enregistrement admin figé.
+        ReglageSite.objects.filter(pk=cfg.pk).update(
+            whatsapp_phone='',
+            whatsapp_url='https://wa.me/33600000000?text=Bonjour%20Cleared2Bet',
+            whatsapp_message=(
+                'Bonjour, je suis {pseudo}, Zanalyste sur Zanalyze. '
+                'Je souhaite devenir Premium.'
+            ),
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get('/api/v1/info/')
+        url = unquote(r.data.get('whatsapp_vip_url') or '')
+        self.assertIn('wa.me/33600000000', url)
+        self.assertIn('ZanAlpha', url)
+        self.assertNotIn('Cleared2Bet', url)
+
+    def test_save_nettoie_ancien_whatsapp_url_admin(self):
+        cfg = ReglageSite.get_solo()
+        cfg.whatsapp_phone = ''
+        cfg.whatsapp_url = (
+            'https://wa.me/24106111111?text=Bonjour%20je%20veux%20Cleared2Bet'
+        )
+        cfg.whatsapp_message = MSG_DEMANDE_PREMIUM
+        cfg.save()
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.whatsapp_phone, '24106111111')
+        self.assertEqual(cfg.whatsapp_url, 'https://wa.me/24106111111')
+        self.assertNotIn('Cleared2Bet', cfg.whatsapp_url)
+        self.assertNotIn('text=', cfg.whatsapp_url)

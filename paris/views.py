@@ -50,10 +50,13 @@ def _payload_auth(user):
     return payload_auth(user)
 
 
-def _payload_vip_public():
+def _payload_vip_public(user=None):
     cfg = ReglageSite.get_solo()
+    pseudo = None
+    if user is not None and getattr(user, 'is_authenticated', False):
+        pseudo = (getattr(user, 'username', None) or '').strip() or None
     return {
-        'whatsapp_vip_url': cfg.lien_whatsapp_vip(),
+        'whatsapp_vip_url': cfg.lien_whatsapp_vip(pseudo=pseudo),
         'vip_tarif_libelle': cfg.vip_tarif_libelle or 'Premium Zanalyze',
     }
 
@@ -326,7 +329,7 @@ class Info(CacheETagMixin, APIView):
             'version_moteur': version_moteur_active(),
             'engine': etat_sync(),
             **_payload_auth(request.user),
-            **_payload_vip_public(),
+            **_payload_vip_public(request.user),
         })
 
 

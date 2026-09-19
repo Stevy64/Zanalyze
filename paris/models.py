@@ -357,6 +357,12 @@ class PronosticPremium(models.Model):
         return f'{self.user} → {self.match_id} ({self.choix})'
 
 
+MSG_DEMANDE_PREMIUM = (
+    'Bonjour, je suis {pseudo}, Zanalyste sur Zanalyze. '
+    'Je souhaite devenir Premium.'
+)
+
+
 class ReglageSite(models.Model):
     """Réglages globaux (singleton) — WhatsApp Premium, etc."""
     whatsapp_phone = models.CharField(
@@ -365,12 +371,18 @@ class ReglageSite(models.Model):
     )
     whatsapp_message = models.CharField(
         max_length=300, blank=True,
-        default='Bonjour, je souhaite devenir Premium sur Zanalyze.',
-        help_text='Message prérempli quand l’utilisateur ouvre WhatsApp.',
+        default=MSG_DEMANDE_PREMIUM,
+        help_text=(
+            'Message prérempli WhatsApp. Utilise {pseudo} pour le nom du Zanalyste '
+            '(indispensable pour l’identifier en admin).'
+        ),
     )
     whatsapp_url = models.URLField(
         blank=True,
-        help_text='Lien WhatsApp complet (prioritaire si renseigné).',
+        help_text=(
+            'Lien WhatsApp de secours (wa.me/NUMERO uniquement, sans text=). '
+            'Le message avec le pseudo du Zanalyste est reconstruit automatiquement.'
+        ),
     )
     vip_tarif_libelle = models.CharField(
         max_length=120, blank=True, default='Premium Zanalyze',
@@ -387,29 +399,79 @@ class ReglageSite(models.Model):
 
     def save(self, *args, **kwargs):
         self.pk = 1
+        self._normaliser_whatsapp_url()
         super().save(*args, **kwargs)
+
+    def _normaliser_whatsapp_url(self):
+        """Nettoie un ancien wa.me avec text= Cleared2Bet ; conserve le numéro."""
+        import re
+        url = (self.whatsapp_url or '').strip()
+        if not url:
+            return
+        phone = re.sub(r'\D', '', self.whatsapp_phone or '')
+        if not phone:
+            m = re.search(r'(?:wa\.me|api\.whatsapp\.com/send\?phone=)/?(\d+)', url)
+            if not m:
+                m = re.search(r'phone=(\d+)', url)
+            if m:
+                phone = m.group(1)
+                self.whatsapp_phone = phone
+        url_bas = url.lower()
+        if 'cleared2bet' in url_bas or 'text=' in url_bas:
+            self.whatsapp_url = f'https://wa.me/{phone}' if phone else ''
 
     @classmethod
     def get_solo(cls) -> 'ReglageSite':
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
-    def lien_whatsapp_vip(self) -> str:
-        from urllib.parse import quote
+    def message_demande_premium(self, pseudo=None) -> str:
+        """Message WhatsApp Premium, avec le pseudo du Zanalyste pour l’admin."""
+        template = (self.whatsapp_message or MSG_DEMANDE_PREMIUM).strip() or MSG_DEMANDE_PREMIUM
+        for old, new in (
+            ('Cleared2Bet', 'Zanalyze'),
+            ('cleared2bet', 'Zanalyze'),
+            ('CLEARED2BET', 'Zanalyze'),
+            ('ZanalyZ', 'Zanalyze'),
+        ):
+            template = template.replace(old, new)
+        name = (pseudo or '').strip() or 'un Zanalyste'
+        if '{pseudo}' in template or '{username}' in template:
+            return (
+                template
+                .replace('{pseudo}', name)
+                .replace('{username}', name)
+            )
+        if (pseudo or '').strip():
+            return f'{template} (Zanalyste : {name})'
+        return template
+
+    def _telephone_whatsapp(self) -> str:
         import os
         import re
-        if (self.whatsapp_url or '').strip():
-            return self.whatsapp_url.strip()
         phone = re.sub(r'\D', '', self.whatsapp_phone or '')
-        if not phone:
-            phone = re.sub(
-                r'\D', '',
-                os.environ.get('ZANALYZ_WHATSAPP_PHONE')
-                or os.environ.get('C2B_WHATSAPP_PHONE', ''),
-            )
+        if phone:
+            return phone
+        url = (self.whatsapp_url or '').strip()
+        if url:
+            m = re.search(r'(?:wa\.me|api\.whatsapp\.com/send\?phone=)/?(\d+)', url)
+            if m:
+                return m.group(1)
+            m = re.search(r'phone=(\d+)', url)
+            if m:
+                return m.group(1)
+        return re.sub(
+            r'\D', '',
+            os.environ.get('ZANALYZ_WHATSAPP_PHONE')
+            or os.environ.get('C2B_WHATSAPP_PHONE', ''),
+        )
+
+    def lien_whatsapp_vip(self, pseudo=None) -> str:
+        from urllib.parse import quote
+        phone = self._telephone_whatsapp()
         if not phone:
             return ''
-        msg = (self.whatsapp_message or 'Bonjour, je souhaite devenir Premium sur Zanalyze.').strip()
+        msg = self.message_demande_premium(pseudo)
         return f'https://wa.me/{phone}?text={quote(msg)}'
 
 
