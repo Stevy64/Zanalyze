@@ -217,8 +217,9 @@ def _upsert_equipe(e: dict[str, Any]) -> Equipe:
     )
     for k, v in defaults.items():
         setattr(eq, k, v)
-    if sid:
-        eq.sofascore_id = sid
+    # Toujours aligner sur le snapshot : un null V4 efface un id ESPN
+    # indûment stocké comme sofascore_id (cause du bug d'identité).
+    eq.sofascore_id = sid
     eq.save()
     return eq
 
@@ -383,7 +384,10 @@ def _upsert_match(
 ) -> Match:
     """
     Upsert match par sofascore_id, sinon par (domicile, exterieur, coup_d'envoi).
-    Évite le conflit unique legacy SofaScore → ESPN (même rencontre, autre id).
+
+    Cas V4 : une ligne ESPN (mauvaises équipes, bug d'identité) et une ligne
+    à la bonne identité (autre sid) coexistent. Réécrire la première heurte
+    alors la contrainte unique — il faut fusionner avant le save.
     """
     defaults = {
         'competition': competition,
@@ -399,22 +403,28 @@ def _upsert_match(
         'sofascore_id': sid,
     }
 
-    match = Match.objects.filter(sofascore_id=sid).first()
-    if match is None:
-        match = Match.objects.filter(
-            domicile=domicile,
-            exterieur=exterieur,
-            coup_denvoi=coup,
-        ).first()
+    by_sid = Match.objects.filter(sofascore_id=sid).first()
+    by_key = Match.objects.filter(
+        domicile=domicile,
+        exterieur=exterieur,
+        coup_denvoi=coup,
+    ).first()
 
-    if match is None:
-        # Libère le sid s’il traîne sur un autre match (ne devrait pas arriver).
-        Match.objects.filter(sofascore_id=sid).update(sofascore_id=None)
+    if by_sid and by_key and by_sid.pk != by_key.pk:
+        # Garder l'affiche correcte ; le doublon sid (souvent corrompu) part.
+        Match.objects.filter(pk=by_sid.pk).update(sofascore_id=None)
+        by_sid.delete()
+        match = by_key
+    elif by_sid is not None:
+        match = by_sid
+    elif by_key is not None:
+        match = by_key
+    else:
         return Match.objects.create(**defaults)
 
-    # Autre ligne avec ce sid → libérer
-    Match.objects.filter(sofascore_id=sid).exclude(pk=match.pk).update(sofascore_id=None)
-
+    Match.objects.filter(sofascore_id=sid).exclude(pk=match.pk).update(
+        sofascore_id=None,
+    )
     for k, v in defaults.items():
         setattr(match, k, v)
     match.save()

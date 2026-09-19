@@ -151,3 +151,63 @@ class SnapshotRoundtripTests(TestCase):
         m = Match.objects.get()
         self.assertEqual(m.pk, ancien.pk)
         self.assertEqual(m.sofascore_id, 401888001)
+
+    def test_import_fusionne_sid_espn_corrompu_et_ligne_correcte(self):
+        """Bug V4 : ligne ESPN (mauvaises équipes) + ligne correcte → une seule.
+
+        Sans fusion, le save de la ligne ESPN heurte
+        UNIQUE(domicile, exterieur, coup_denvoi).
+        """
+        Match.objects.all().delete()
+        wrong = Equipe.objects.create(
+            nom='Wrong FC', nom_court='Wrong', slug='wrong-fc', sofascore_id=99,
+        )
+        coup = datetime(2026, 9, 20, 15, 0, tzinfo=dt_timezone.utc)
+        corrompu = Match.objects.create(
+            competition=self.comp,
+            domicile=self.dom,
+            exterieur=wrong,
+            coup_denvoi=coup,
+            statut='a_venir',
+            sofascore_id=401915451,
+        )
+        correct = Match.objects.create(
+            competition=self.comp,
+            domicile=self.dom,
+            exterieur=self.ext,
+            coup_denvoi=coup,
+            statut='a_venir',
+            sofascore_id=111111,
+        )
+        payload = {
+            'version': 1,
+            'competitions': [{
+                'code': 'PL', 'nom': 'Premier League', 'pays': 'Angleterre',
+                'ordre': 20, 'actif': True, 'sofascore_id': None,
+            }],
+            'equipes': [
+                {'nom': 'Home FC', 'nom_court': 'Home', 'slug': 'home-fc',
+                 'sofascore_id': None, 'logo_externe': '', 'fiche_club': {}},
+                {'nom': 'Away FC', 'nom_court': 'Away', 'slug': 'away-fc',
+                 'sofascore_id': None, 'logo_externe': '', 'fiche_club': {}},
+            ],
+            'matchs': [{
+                'sofascore_id': 401915451,
+                'competition_code': 'PL',
+                'domicile_slug': 'home-fc',
+                'exterieur_slug': 'away-fc',
+                'coup_denvoi': '2026-09-20T15:00:00+00:00',
+                'statut': 'a_venir',
+                'cotes': [],
+                'analyse': None,
+            }],
+        }
+        stats = importer_snapshot(payload)
+        self.assertEqual(stats['matchs'], 1)
+        self.assertEqual(Match.objects.count(), 1)
+        m = Match.objects.get()
+        self.assertEqual(m.pk, correct.pk)
+        self.assertEqual(m.sofascore_id, 401915451)
+        self.assertEqual(m.exterieur_id, self.ext.pk)
+        self.assertFalse(Match.objects.filter(pk=corrompu.pk).exists())
+        self.assertIsNone(Equipe.objects.get(slug='home-fc').sofascore_id)
