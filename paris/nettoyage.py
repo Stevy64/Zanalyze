@@ -11,13 +11,18 @@ from collections import defaultdict
 from django.db import transaction
 from django.db.models import Q
 
-from paris.identite import cle_equipe, meme_club
+from paris.identite import cle_equipe
 from paris.models import Equipe, Match
+
+
+def _cle_club(eq: Equipe) -> str:
+    """Clé canonique : nom d'abord, sinon slug (ex. deportivo-alaves)."""
+    return cle_equipe(eq.nom) or cle_equipe(eq.slug.replace('-', ' '))
 
 
 def _garder_equipe(a: Equipe, b: Equipe) -> Equipe:
     """Préfère le slug canonique / le plus court / le plus récent."""
-    ca, cb = cle_equipe(a.nom), cle_equipe(b.nom)
+    ca = _cle_club(a)
     if a.slug == ca and b.slug != ca:
         return a
     if b.slug == ca and a.slug != ca:
@@ -32,7 +37,7 @@ def _garder_match(a: Match, b: Match) -> Match:
     def score(m: Match) -> tuple:
         sid = m.sofascore_id or 0
         espn = 1 if sid >= 100_000_000 else (0 if sid else -1)
-        has_ana = 1 if hasattr(m, 'analyse') else 0
+        has_ana = 0
         try:
             _ = m.analyse
             has_ana = 1
@@ -69,11 +74,10 @@ def nettoyer_doublons() -> dict[str, int]:
     for groupe in par_fenetre.values():
         if len(groupe) < 2:
             continue
-        # Regroupe par identité des deux clubs.
         buckets: dict[tuple[str, str], list[Match]] = defaultdict(list)
         for m in groupe:
-            kd = cle_equipe(m.domicile.nom)
-            ke = cle_equipe(m.exterieur.nom)
+            kd = _cle_club(m.domicile)
+            ke = _cle_club(m.exterieur)
             buckets[(kd, ke)].append(m)
         for lot in buckets.values():
             if len(lot) < 2:
@@ -83,18 +87,13 @@ def nettoyer_doublons() -> dict[str, int]:
                 garder = _garder_match(garder, autre)
             for m in lot:
                 if m.pk != garder.pk:
-                    # Réécrire les FK vers les équipes du gardien avant delete.
-                    if m.domicile_id != garder.domicile_id or m.exterieur_id != garder.exterieur_id:
-                        # Si le gardien a les bons clubs, on jette l'autre.
-                        pass
                     _fusionner_matchs(garder, m)
                     stats['matchs_doublons'] += 1
 
     # 2) Affiches absurdes : Rome – Le Mans alors que Rome – Inter existe.
-    for m in Match.objects.select_related('domicile', 'exterieur', 'competition'):
-        if cle_equipe(m.exterieur.nom) != 'le-mans' and 'le-mans' not in (m.exterieur.slug or ''):
+    for m in list(Match.objects.select_related('domicile', 'exterieur', 'competition')):
+        if _cle_club(m.exterieur) != 'le-mans' and 'le-mans' not in (m.exterieur.slug or ''):
             continue
-        # Le Mans en Serie A / C1 / C3 = quasi sûr un Inter corrompu.
         if m.competition.code not in ('SA', 'UCL', 'UEL', 'CI'):
             continue
         jumeau = Match.objects.filter(
@@ -103,24 +102,20 @@ def nettoyer_doublons() -> dict[str, int]:
             domicile=m.domicile,
         ).exclude(pk=m.pk).select_related('exterieur')
         for j in jumeau:
-            if cle_equipe(j.exterieur.nom) == 'inter' or 'inter' in j.exterieur.slug:
+            if _cle_club(j.exterieur) == 'inter' or 'inter' in j.exterieur.slug:
                 _fusionner_matchs(j, m)
                 stats['matchs_absurdes'] += 1
                 break
 
-    # 3) Fusion d'équipes synonymes (après matchs, pour éviter PROTECT).
+    # 3) Fusion d'équipes à **même clé canonique** uniquement (pas d'inclusion
+    # floue : Paris FC ≠ PSG).
     equipes = list(Equipe.objects.all())
-    vus: set[int] = set()
-    for i, a in enumerate(equipes):
-        if a.pk in vus:
-            continue
-        syn = [a]
-        for b in equipes[i + 1:]:
-            if b.pk in vus:
-                continue
-            if meme_club(a.nom, b.nom) or cle_equipe(a.nom) == cle_equipe(b.nom):
-                syn.append(b)
-        if len(syn) < 2:
+    par_cle: dict[str, list[Equipe]] = defaultdict(list)
+    for e in equipes:
+        par_cle[_cle_club(e)].append(e)
+
+    for cle, syn in par_cle.items():
+        if not cle or len(syn) < 2:
             continue
         garder = syn[0]
         for autre in syn[1:]:
@@ -128,30 +123,31 @@ def nettoyer_doublons() -> dict[str, int]:
         for e in syn:
             if e.pk == garder.pk:
                 continue
-            # Réassigne les matchs restants.
-            for m in Match.objects.filter(Q(domicile=e) | Q(exterieur=e)):
-                if m.domicile_id == e.pk:
-                    m.domicile = garder
-                if m.exterieur_id == e.pk:
-                    m.exterieur = garder
-                # Collision possible → supprimer ce match s'il double une affiche.
+            matchs = list(Match.objects.filter(Q(domicile=e) | Q(exterieur=e)))
+            for m in matchs:
+                new_dom = garder if m.domicile_id == e.pk else m.domicile
+                new_ext = garder if m.exterieur_id == e.pk else m.exterieur
+                if new_dom.pk == new_ext.pk:
+                    m.delete()
+                    stats['matchs_doublons'] += 1
+                    continue
                 conflit = Match.objects.filter(
-                    domicile=m.domicile,
-                    exterieur=m.exterieur,
+                    domicile=new_dom,
+                    exterieur=new_ext,
                     coup_denvoi=m.coup_denvoi,
                 ).exclude(pk=m.pk).first()
                 if conflit:
-                    _fusionner_matchs(_garder_match(conflit, m), m if conflit.pk != m.pk else conflit)
+                    _fusionner_matchs(_garder_match(conflit, m), m)
                     stats['matchs_doublons'] += 1
                 else:
-                    try:
-                        m.save()
-                    except Exception:
-                        m.delete()
-                        stats['matchs_doublons'] += 1
+                    Match.objects.filter(pk=m.pk).update(
+                        domicile=new_dom, exterieur=new_ext,
+                    )
+            restants = Match.objects.filter(Q(domicile=e) | Q(exterieur=e)).count()
+            if restants:
+                # Ne jamais casser sur PROTECT : on laisse l'équipe orpheline.
+                continue
             e.delete()
-            vus.add(e.pk)
             stats['equipes_fusionnees'] += 1
-        vus.add(garder.pk)
 
     return stats

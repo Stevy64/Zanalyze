@@ -10,7 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from paris.models import Analyse, Competition, Contexte, Cote, Equipe, Match, Option
 from paris.reglement import regler_match
-from paris.identite import cle_equipe, meme_club
+from paris.identite import cle_equipe
 
 SNAPSHOT_VERSION = 1
 
@@ -189,14 +189,14 @@ def _trouver_equipe_connue(nom: str, slug: str) -> Equipe | None:
     eq = Equipe.objects.filter(nom=nom).first()
     if eq:
         return eq
-    # Anciens slugs SofaScore : deportivo-alaves ↔ alaves, athletic ↔ athletic-bilbao.
+    cible = cle_equipe(nom) or cle_equipe(slug.replace('-', ' '))
+    if not cible:
+        return None
+    # Uniquement même clé canonique (alias) — pas d'inclusion floue Paris ⊂ PSG.
     for cand in Equipe.objects.all().only('id', 'nom', 'slug', 'nom_court'):
-        if meme_club(nom, cand.nom) or meme_club(nom, cand.slug.replace('-', ' ')):
+        if cle_equipe(cand.nom) == cible:
             return cand
-        if slug and (
-            meme_club(slug.replace('-', ' '), cand.nom)
-            or cle_equipe(slug.replace('-', ' ')) == cle_equipe(cand.slug.replace('-', ' '))
-        ):
+        if cle_equipe(cand.slug.replace('-', ' ')) == cible:
             return cand
     return None
 
@@ -438,12 +438,14 @@ def _upsert_match(
 
     # Même affiche sous d'anciens slugs (alaves / deportivo-alaves, etc.).
     if by_key is None:
+        cible_d = cle_equipe(domicile.nom)
+        cible_e = cle_equipe(exterieur.nom)
         for cand in Match.objects.filter(
             competition=competition, coup_denvoi=coup,
         ).select_related('domicile', 'exterieur'):
             if (
-                meme_club(domicile.nom, cand.domicile.nom)
-                and meme_club(exterieur.nom, cand.exterieur.nom)
+                cle_equipe(cand.domicile.nom) == cible_d
+                and cle_equipe(cand.exterieur.nom) == cible_e
             ):
                 by_key = cand
                 break
