@@ -227,5 +227,8 @@
 </div>
 {% else %}
 <p class="zyz-empty">Dashboard indisponible (migrations ou base à initialiser).</p>
+{% if zanalyz_dashboard_error %}
+<p class="zyz-empty" style="opacity:.75;font-size:13px;margin-top:.5rem;">{{ zanalyz_dashboard_error }}</p>
+{% endif %}
 {% endif %}
 {% endblock %}

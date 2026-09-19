@@ -1859,6 +1859,33 @@ input, select {
   color: var(--fg);
   width: 100%;
 }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  font-weight: 600;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%235b6577' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+select:hover { border-color: #c5ced9; }
+select:focus {
+  outline: none;
+  border-color: #e8631c;
+  box-shadow: 0 0 0 3px rgba(232, 99, 28, 0.18);
+}
+select option {
+  font-weight: 600;
+  color: var(--fg);
+  background: #fff;
+}
+select option:checked {
+  background: #e8631c linear-gradient(0deg, #e8631c 0%, #e8631c 100%);
+  color: #fff;
+}
 .checks { list-style: none; padding: 0; margin: 0; }
 .comp-pays { margin-top: 14px; }
 .comp-pays:first-of-type { margin-top: 8px; }

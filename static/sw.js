@@ -1,7 +1,7 @@
-const CACHE = 'paris-v105';
+const CACHE = 'paris-v106';
 const PRECACHE = [
   '/manifest.webmanifest',
-  '/static/css/app.css?v=103',
+  '/static/css/app.css?v=106',
   '/static/js/app.js?v=105',
   '/static/vendor/alpine.min.js?v=60',
   '/static/img/hero-accueil.jpg',

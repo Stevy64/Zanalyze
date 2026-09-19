@@ -17,14 +17,19 @@ _admin_index_orig = admin.site.index
 def _admin_index(request, extra_context=None):
     # Ne pas binder avec __get__ : Django appelle site.index(request, …)
     # sans injecter self (attribut d’instance).
+    import logging
     ctx = dict(extra_context or {})
     ctx['title'] = 'Tableau de bord'
     try:
         ctx['zanalyz_stats'] = build_dashboard_stats()
         ctx['zanalyz_reglages'] = ReglageSite.get_solo()
-    except Exception:  # noqa: BLE001 — migrations en cours
+    except Exception as exc:  # noqa: BLE001 — migrations en cours
+        logging.getLogger(__name__).exception('Dashboard admin: %s', exc)
         ctx['zanalyz_stats'] = None
         ctx['zanalyz_reglages'] = None
+        from django.conf import settings
+        if settings.DEBUG:
+            ctx['zanalyz_dashboard_error'] = f'{type(exc).__name__}: {exc}'
     return _admin_index_orig(request, ctx)
 
 
@@ -215,18 +220,6 @@ class VoteOptionAdmin(admin.ModelAdmin):
     list_filter = ('choix',)
 
 
-class HistoriqueAbonnementInline(admin.TabularInline):
-    model = HistoriqueAbonnement
-    extra = 0
-    can_delete = False
-    fields = ('created_at', 'type', 'ordre', 'mois', 'debut', 'expire_le', 'admin_user', 'note')
-    readonly_fields = fields
-    ordering = ('-created_at',)
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-
 @admin.register(HistoriqueAbonnement)
 class HistoriqueAbonnementAdmin(admin.ModelAdmin):
     list_display = (
@@ -263,8 +256,8 @@ class ProfilAdmin(admin.ModelAdmin):
     autocomplete_fields = ('user',)
     list_editable = ()
     actions = ('octroyer_vip', 'prolonger_vip', 'retirer_vip')
-    inlines = (HistoriqueAbonnementInline,)
-    readonly_fields = ('premium_acceptations', 'resume_cycle')
+    inlines = ()
+    readonly_fields = ('resume_cycle', 'journal_abonnements')
     fieldsets = (
         (None, {
             'fields': (
@@ -273,15 +266,15 @@ class ProfilAdmin(admin.ModelAdmin):
             ),
             'description': (
                 'À l’octroi, l’abonnement Premium dure 1 mois. '
-                'Tu peux prolonger via l’action « Prolonger Premium (+1 mois) » '
-                'ou en modifiant « VIP expire le ».'
+                'Prolonge via l’action « Prolonger Premium (+1 mois) » '
+                'ou en modifiant la date d’expiration.'
             ),
         }),
-        ('Historique abonnement', {
-            'fields': ('premium_acceptations', 'resume_cycle'),
+        ('Abonnement Premium', {
+            'fields': ('resume_cycle', 'journal_abonnements'),
             'description': (
-                '1 = premier abonnement ; 2+ = renouvellements '
-                '(renouvellement n°1, n°2…). Journal détaillé ci-dessous.'
+                'Cycle courant et journal des acceptations '
+                '(1er abo, renouvellements, prolongations, retraits).'
             ),
         }),
     )
@@ -291,29 +284,94 @@ class ProfilAdmin(admin.ModelAdmin):
         from django.utils.html import format_html
         if obj.abonnement_vip_actif:
             return format_html(
-                '<span style="display:inline-flex;align-items:center;padding:3px 10px;'
-                'border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;'
-                'background:#fff4ec;color:#e8631c;border:1px solid #ffd7bf;">Premium</span>',
+                '<span class="zyz-pill-tag is-premium">Premium</span>',
             )
         if obj.categorie in ('vip', 'premium'):
             return format_html(
-                '<span style="display:inline-flex;align-items:center;padding:3px 10px;'
-                'border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;'
-                'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;">Expiré</span>',
+                '<span class="zyz-pill-tag is-expired">Expiré</span>',
             )
         return format_html(
-            '<span style="display:inline-flex;align-items:center;padding:3px 10px;'
-            'border-radius:999px;font-size:11px;font-weight:700;'
-            'background:#f3f4f6;color:#6b7280;">Membre</span>',
+            '<span class="zyz-pill-tag is-membre">Membre</span>',
         )
 
     @admin.display(description='Cycle', ordering='premium_acceptations')
     def cycle_premium(self, obj):
         return obj.libelle_cycle_premium
 
-    @admin.display(description='Résumé')
+    @admin.display(description='Cycle actuel')
     def resume_cycle(self, obj):
-        return obj.libelle_cycle_premium
+        from django.utils.html import format_html
+        n = int(obj.premium_acceptations or 0)
+        return format_html(
+            '<div class="zyz-abo-resume">'
+            '<span class="zyz-pill-tag {}">{}</span>'
+            '<span class="zyz-abo-resume-meta">{} acceptation{}</span>'
+            '</div>',
+            'is-premium' if n else 'is-membre',
+            obj.libelle_cycle_premium,
+            n,
+            's' if n != 1 else '',
+        )
+
+    @admin.display(description='Journal')
+    def journal_abonnements(self, obj):
+        from django.utils.html import format_html
+        from django.utils.safestring import mark_safe
+
+        if not obj or not obj.pk:
+            return format_html(
+                '<p class="zyz-abo-empty">Enregistre le profil pour voir le journal.</p>',
+            )
+        rows = list(obj.historique_abonnements.select_related('admin_user')[:30])
+        if not rows:
+            return format_html(
+                '<p class="zyz-abo-empty">Aucun événement pour l’instant.</p>',
+            )
+
+        def _fmt(dt):
+            if not dt:
+                return '—'
+            return timezone.localtime(dt).strftime('%d/%m/%Y %H:%M')
+
+        chunks = []
+        for h in rows:
+            meta = f'{_fmt(h.debut)} · {h.mois or 0} mois'
+            if h.expire_le:
+                meta += f' · jusqu’au {_fmt(h.expire_le)}'
+            note_bits = []
+            if h.admin_user_id:
+                note_bits.append(h.admin_user.username)
+            if h.note:
+                note_bits.append(h.note)
+            note_html = (
+                format_html('<p class="zyz-abo-note">{}</p>', ' · '.join(note_bits))
+                if note_bits else mark_safe('')
+            )
+            chunks.append(format_html(
+                '<li class="zyz-abo-item type-{0}">'
+                '<span class="zyz-abo-dot" aria-hidden="true"></span>'
+                '<div class="zyz-abo-body">'
+                '<div class="zyz-abo-top">'
+                '<span class="zyz-abo-type">{1}</span>'
+                '<span class="zyz-abo-ordre">{2}</span>'
+                '</div>'
+                '<p class="zyz-abo-meta">{3}</p>'
+                '{4}'
+                '</div>'
+                '<time class="zyz-abo-time">{5}</time>'
+                '</li>',
+                h.type,
+                h.get_type_display(),
+                h.libelle_ordre,
+                meta,
+                note_html,
+                _fmt(h.created_at),
+            ))
+        return mark_safe(
+            '<ul class="zyz-abo-journal" role="list">'
+            + ''.join(chunks)
+            + '</ul>'
+        )
 
     @admin.display(description='Expire', ordering='vip_expire_le')
     def expire_court(self, obj):

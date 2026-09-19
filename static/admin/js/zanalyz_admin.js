@@ -151,16 +151,74 @@
     });
   }
 
+  function polishDatetimeWidgets() {
+    document.querySelectorAll('.form-row .datetime').forEach(function (wrap) {
+      if (wrap.classList.contains('zyz-datetime')) return;
+      wrap.classList.add('zyz-datetime');
+      var lines = [];
+      var current = { label: '', input: null, shortcuts: null };
+
+      function pushLine() {
+        if (!current.input) {
+          current = { label: '', input: null, shortcuts: null };
+          return;
+        }
+        var line = document.createElement('div');
+        line.className = 'zyz-dt-line';
+        if (current.label) {
+          var lab = document.createElement('span');
+          lab.className = 'zyz-dt-label';
+          lab.textContent = current.label.replace(/:\s*$/, '').trim();
+          line.appendChild(lab);
+        }
+        line.appendChild(current.input);
+        if (current.shortcuts) line.appendChild(current.shortcuts);
+        lines.push(line);
+        current = { label: '', input: null, shortcuts: null };
+      }
+
+      Array.prototype.slice.call(wrap.childNodes).forEach(function (node) {
+        if (node.nodeType === 3) {
+          var t = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) current.label += (current.label ? ' ' : '') + t;
+          return;
+        }
+        if (node.nodeType !== 1) return;
+        if (node.tagName === 'BR') {
+          pushLine();
+          return;
+        }
+        if (
+          node.tagName === 'INPUT'
+          || node.classList.contains('vDateField')
+          || node.classList.contains('vTimeField')
+        ) {
+          current.input = node;
+          return;
+        }
+        if (node.classList.contains('datetimeshortcuts')) {
+          current.shortcuts = node;
+          pushLine();
+        }
+      });
+      pushLine();
+      while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+      lines.forEach(function (line) { wrap.appendChild(line); });
+    });
+  }
+
   function polishChrome() {
     var toolbar = document.getElementById('toolbar');
     if (toolbar) toolbar.classList.add('zyz-toolbar');
     var actions = document.querySelector('.actions');
     if (actions) actions.classList.add('zyz-actions-bar');
     document.body.classList.add('zyz-admin');
+    polishDatetimeWidgets();
     // Change form: compact secondary saves
     var submit = document.querySelector('.submit-row');
     if (submit) {
       submit.classList.add('zyz-submit-compact');
+      document.body.classList.add('zyz-has-sticky-submit');
       var inputs = submit.querySelectorAll('input[type="submit"], a.deletelink');
       if (inputs.length > 2) {
         var more = document.createElement('details');
