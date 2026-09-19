@@ -1022,13 +1022,29 @@ function zanalyz() {
       document.body.classList.remove('sheet-open');
     },
 
-    ouvrirJustif(bloc, option) {
+    async ouvrirJustif(bloc, option) {
       if (!option) return;
       if (!this.peutVip) {
         this.ouvrirVipGate('justif');
         return;
       }
-      const j = option.justification || {};
+      let j = option.justification || {};
+      const vide = !j.accroche
+        && !(j.arguments && j.arguments.length)
+        && !(j.points && j.points.length);
+      if (vide && bloc && bloc.id) {
+        const { data, ok } = await getJSON('/api/v1/matchs/' + bloc.id + '/');
+        if (ok && data && data.analyse && data.analyse.options) {
+          const full = data.analyse.options.find((o) => (
+            (option.id && o.id === option.id)
+            || (option.code && o.code === option.code && o.niveau === option.niveau)
+          ));
+          if (full && full.justification) {
+            j = full.justification;
+            option.justification = j;
+          }
+        }
+      }
       if (!j.accroche && !(j.arguments && j.arguments.length) && !(j.points && j.points.length)) {
         this.ouvrirVipGate('justif');
         return;
@@ -1317,7 +1333,7 @@ function zanalyz() {
       try {
         const { data, fromCache, offline, ok } = await getJSON(
           '/api/v1/matchs/?' + q.toString(),
-          { timeoutMs: 12000 },
+          { timeoutMs: 20000 },
         );
         if (token !== this._matchReq) return;
         if (offline || !ok || !data) {
@@ -1336,6 +1352,18 @@ function zanalyz() {
         this.horsLigne = false;
         this.noterCache(fromCache);
         let list = (data && data.results) || [];
+        // Cache SW parfois figé à [] après un import raté : force un passage réseau.
+        if (fromCache && !list.length) {
+          const retry = await getJSON(
+            '/api/v1/matchs/?' + q.toString() + '&_=' + Date.now(),
+            { timeoutMs: 20000 },
+          );
+          if (token !== this._matchReq) return;
+          if (retry.ok && retry.data) {
+            list = retry.data.results || [];
+            this.noterCache(!!retry.fromCache);
+          }
+        }
         if (filtreActif) {
           list = list.filter((m) => matchFiltreCompetition(m, filtreActif));
         }
@@ -1351,7 +1379,7 @@ function zanalyz() {
         }
         list.sort((a, b) => new Date(a.coup_denvoi) - new Date(b.coup_denvoi));
         this.matchs = list;
-        ecrireCacheMatchs(cacheKey, list);
+        if (list.length) ecrireCacheMatchs(cacheKey, list);
       } catch (_) {
         if (token !== this._matchReq) return;
         if (!garderListe && !(this.matchs && this.matchs.length)) this.matchs = [];

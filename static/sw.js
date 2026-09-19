@@ -1,8 +1,8 @@
-const CACHE = 'paris-v99';
+const CACHE = 'paris-v101';
 const PRECACHE = [
   '/manifest.webmanifest',
-  '/static/css/app.css?v=99',
-  '/static/js/app.js?v=99',
+  '/static/css/app.css?v=101',
+  '/static/js/app.js?v=101',
   '/static/vendor/alpine.min.js?v=60',
   '/static/img/hero-accueil.jpg',
   '/static/brand/zanalyze-logo.png',
@@ -116,9 +116,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (path.startsWith('/api/')) {
-    // Listes matchs : cache immédiat + revalidation (évite le spinner hors-ligne).
+    // Listes matchs : réseau d’abord (évite de resservir un JSON vide
+    // figé après un import raté). Cache seulement en secours.
     if (path.startsWith('/api/v1/matchs') && !path.includes('/resultat')) {
-      event.respondWith(staleWhileRevalidate(req));
+      event.respondWith(networkFirst(req, { flagCache: true, timeoutMs: 15000 }));
       return;
     }
     // Autres API : réseau rapide, sinon cache.

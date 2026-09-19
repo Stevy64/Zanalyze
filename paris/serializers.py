@@ -100,18 +100,18 @@ class EquipeCourtSerializer(serializers.Serializer):
 
 
 class OptionListeSerializer(serializers.ModelSerializer):
+    """Options pour les listes : pas de justification (trop lourd × N matchs)."""
     likes = serializers.SerializerMethodField()
     dislikes = serializers.SerializerMethodField()
     pct_likes = serializers.SerializerMethodField()
     mon_vote = serializers.SerializerMethodField()
-    justification = serializers.SerializerMethodField()
 
     class Meta:
         model = Option
         fields = (
             'id', 'niveau', 'libelle', 'probabilite', 'resultat',
             'famille', 'code', 'cote_juste', 'origine',
-            'likes', 'dislikes', 'pct_likes', 'mon_vote', 'justification',
+            'likes', 'dislikes', 'pct_likes', 'mon_vote',
         )
 
     def _c(self, obj):
@@ -128,16 +128,6 @@ class OptionListeSerializer(serializers.ModelSerializer):
 
     def get_mon_vote(self, obj):
         return self._c(obj)['mon_vote']
-
-    def get_justification(self, obj):
-        match = getattr(obj, '_parent_match', None)
-        analyse = getattr(match, 'analyse', None) if match else getattr(obj, 'analyse', None)
-        return _justifier_si_tip(
-            obj,
-            analyse=analyse,
-            match=match,
-            request=self.context.get('request'),
-        )
 
 
 class MatchListeSerializer(serializers.ModelSerializer):
