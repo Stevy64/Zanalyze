@@ -7,18 +7,17 @@ const LS_SALON_READ = 'zanalyz.salon.lastReadAt';
 const LS_MATCHS = 'zanalyz.matchs.cache';
 const LS_FICHE_PREFIX = 'zanalyz.fiche.';
 const SS_SCROLL = 'zanalyz.scroll';
-const TZ_APP = 'Europe/Paris';
 
 function csrf() {
   const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : '';
 }
 
-/** Date civile YYYY-MM-DD dans le fuseau de l’app (évite le décalage UTC). */
+/** Date civile YYYY-MM-DD dans le fuseau du téléphone. */
 function dateLocaleISO(isoOrDate) {
   const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-CA', { timeZone: TZ_APP });
+  return d.toLocaleDateString('en-CA');
 }
 
 function fmtApiError(data, fallback) {
@@ -156,15 +155,15 @@ function texteVersPdfBlob(titre, blocs) {
 
 function fmtJour(iso) {
   return new Date(iso).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ_APP,
+    weekday: 'long', day: 'numeric', month: 'long',
   });
 }
 
 function fmtCache(iso) {
   const d = new Date(iso);
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', timeZone: TZ_APP })
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
     + ' à '
-    + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: TZ_APP });
+    + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
 const ICON_PATHS = {
