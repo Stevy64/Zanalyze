@@ -30,7 +30,7 @@ from paris.calibrage import (
 )
 
 RHO = -0.06
-VERSION_MOTEUR = '3.1.0'
+VERSION_MOTEUR = '4.0.0'
 FACTEUR_MI_TEMPS = 0.45
 RESIDU_DOUTEUX = 0.02
 P_1X2_MAX_RECO = 0.75  # au-delà ≈ « lock » trop court ; favoris 55–74 % OK

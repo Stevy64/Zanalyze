@@ -66,9 +66,45 @@ def etat_sync() -> dict[str, Any]:
         'importe_le': meta.get('importe_le'),
         'content_hash': meta.get('content_hash'),
         'matchs': meta.get('matchs'),
+        'version_moteur': meta.get('version_moteur') or version_moteur_active(),
         'dernier_ok': meta.get('ok'),
         'dernier_detail': meta.get('detail'),
     }
+
+
+def _version_depuis_snapshot(data: dict[str, Any]) -> str | None:
+    """Lit la version embarquée dans les analyses du snapshot Engine."""
+    for m in data.get('matchs') or []:
+        ana = m.get('analyse') or {}
+        v = (ana.get('version_moteur') or '').strip()
+        if v:
+            return v[:12]
+    return None
+
+
+def version_moteur_active() -> str:
+    """Version réellement active : meta d'import, sinon analyses en base, sinon constante locale."""
+    meta = lire_meta()
+    v = (meta.get('version_moteur') or '').strip()
+    if v:
+        return v[:12]
+    try:
+        from django.db.models import Count
+        from paris.models import Analyse
+
+        row = (
+            Analyse.objects.exclude(version_moteur='')
+            .values('version_moteur')
+            .annotate(n=Count('id'))
+            .order_by('-n', '-version_moteur')
+            .first()
+        )
+        if row and row.get('version_moteur'):
+            return str(row['version_moteur'])[:12]
+    except Exception:  # noqa: BLE001 — base pas prête / migrations
+        pass
+    from paris.moteur import VERSION_MOTEUR
+    return VERSION_MOTEUR
 
 
 def _age_secondes(iso: str | None) -> float | None:
@@ -148,6 +184,9 @@ def importer_engine(*, force: bool = False, min_age: int | None = None) -> dict[
             meta['importe_le'] = now  # horloge touchée : on a vérifié la source
             meta['ok'] = True
             meta['detail'] = 'hash_inchange'
+            v = _version_depuis_snapshot(data)
+            if v:
+                meta['version_moteur'] = v
             _ecrire_meta(meta)
             return {
                 'ok': True,
@@ -161,12 +200,14 @@ def importer_engine(*, force: bool = False, min_age: int | None = None) -> dict[
 
         stats = importer_snapshot(data)
         now = timezone.now().isoformat()
+        version = _version_depuis_snapshot(data) or version_moteur_active()
         nouveau = {
             'url': url,
             'exporte_le': data.get('exporte_le'),
             'importe_le': now,
             'content_hash': digest,
             'matchs': len(data.get('matchs') or []),
+            'version_moteur': version,
             'stats': stats,
             'ok': True,
             'detail': 'importe',

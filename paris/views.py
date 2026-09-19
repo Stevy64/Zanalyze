@@ -21,7 +21,7 @@ from paris.models import (
     Competition, Equipe, Match, MessageChat, Option, Profil, PronosticPremium,
     PropositionParis, ReglageSite, Vote, VoteOption,
 )
-from paris.moteur import VERSION_MOTEUR
+from paris.engine_sync import version_moteur_active
 from paris.reglement import regler_match
 from paris.chat import messages_actifs, purger_messages_expires
 from paris.roles import est_vip, payload_auth
@@ -323,7 +323,7 @@ class Info(CacheETagMixin, APIView):
         from paris.engine_sync import declencher_refresh_async, etat_sync
         declencher_refresh_async()
         return Response({
-            'version_moteur': VERSION_MOTEUR,
+            'version_moteur': version_moteur_active(),
             'engine': etat_sync(),
             **_payload_auth(request.user),
             **_payload_vip_public(),
@@ -928,6 +928,6 @@ class ClassementPremium(APIView):
 @ensure_csrf_cookie
 def app(request, *args, **kwargs):
     return render(request, 'app.html', {
-        'version_moteur': VERSION_MOTEUR,
+        'version_moteur': version_moteur_active(),
         'annee': datetime.now().year,
     })

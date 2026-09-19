@@ -9,6 +9,7 @@ from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
 from paris.models import Analyse, Competition, Contexte, Cote, Equipe, Match, Option
+from paris.moteur import VERSION_MOTEUR
 from paris.reglement import regler_match
 from paris.identite import cle_equipe
 
@@ -362,7 +363,7 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
                     'profil': ana.get('profil') or 'moyen',
                     'marge_marche': ana.get('marge_marche') or 0,
                     'residu': ana.get('residu') or 0,
-                    'version_moteur': ana.get('version_moteur') or '3.1.0',
+                    'version_moteur': ana.get('version_moteur') or VERSION_MOTEUR,
                 },
             )
             stats['analyses'] += 1

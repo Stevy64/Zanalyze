@@ -32,6 +32,19 @@ class EngineSyncApiTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn('url', r.data)
 
+    def test_version_moteur_active_depuis_meta(self):
+        engine_sync._ecrire_meta({'version_moteur': '4.0.0', 'ok': True})
+        self.assertEqual(engine_sync.version_moteur_active(), '4.0.0')
+        r = self.client.get('/api/v1/info/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['version_moteur'], '4.0.0')
+
+    def test_version_depuis_snapshot(self):
+        v = engine_sync._version_depuis_snapshot({
+            'matchs': [{'analyse': {'version_moteur': '4.0.0'}}],
+        })
+        self.assertEqual(v, '4.0.0')
+
     @override_settings(
         ZANALYZ_SNAPSHOT_URL='https://example.test/matchs.json',
     )
