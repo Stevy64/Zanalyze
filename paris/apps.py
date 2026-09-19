@@ -8,6 +8,7 @@ class ParisConfig(AppConfig):
 
     def ready(self):
         from django.contrib.auth import get_user_model
+        from django.db import OperationalError, ProgrammingError
         from django.db.models.signals import post_save
         from django.utils import timezone
 
@@ -16,7 +17,11 @@ class ParisConfig(AppConfig):
         User = get_user_model()
 
         def assurer_profil(sender, instance, created, **kwargs):
-            profil, _ = Profil.objects.get_or_create(user=instance)
+            try:
+                profil, _ = Profil.objects.get_or_create(user=instance)
+            except (OperationalError, ProgrammingError):
+                # Migrations pas encore appliquées (ex. nouvelle colonne Profil).
+                return
             if not (instance.is_superuser or instance.is_staff):
                 return
             # Admin / staff = Premium permanent (sans date d'expiration).
