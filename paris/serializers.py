@@ -11,6 +11,27 @@ NIVEAUX_LISTE = ('prudente', 'equilibree', 'audacieuse')
 NIVEAUX_COMPOS = ('prudente', 'recommandee', 'equilibree', 'audacieuse', 'filet')
 
 
+def statut_effectif(match) -> str:
+    """Statut affiché : un match dont le coup d'envoi est passé n'est plus « à venir ».
+
+    Le snapshot Engine ne bascule `en_cours` que toutes les ~2 h ; sans ce
+    correctif, l'UI garde l'heure de début alors que le match a commencé.
+    """
+    statut = getattr(match, 'statut', None) or 'a_venir'
+    if statut in ('termine', 'en_cours', 'reporte'):
+        return statut
+    coup = getattr(match, 'coup_denvoi', None)
+    if coup is None:
+        return statut
+    from django.utils import timezone
+    maintenant = timezone.now()
+    if timezone.is_naive(coup):
+        coup = timezone.make_aware(coup, timezone.get_current_timezone())
+    if coup <= maintenant:
+        return 'en_cours'
+    return statut
+
+
 def _est_vip_request(request) -> bool:
     from paris.roles import est_vip
     user = getattr(request, 'user', None) if request else None
@@ -135,6 +156,7 @@ class MatchListeSerializer(serializers.ModelSerializer):
     domicile = EquipeCourtSerializer()
     exterieur = EquipeCourtSerializer()
     score = serializers.CharField(allow_null=True)
+    statut = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
 
     class Meta:
@@ -143,6 +165,9 @@ class MatchListeSerializer(serializers.ModelSerializer):
             'id', 'competition', 'domicile', 'exterieur',
             'coup_denvoi', 'journee', 'statut', 'score', 'options',
         )
+
+    def get_statut(self, obj):
+        return statut_effectif(obj)
 
     def get_options(self, obj):
         from paris.bilan_acces import filtrer_options_bilan
@@ -245,6 +270,7 @@ class MatchDetailSerializer(serializers.ModelSerializer):
     domicile = EquipeCourtSerializer()
     exterieur = EquipeCourtSerializer()
     score = serializers.CharField(allow_null=True)
+    statut = serializers.SerializerMethodField()
     analyse = serializers.SerializerMethodField()
     contexte = serializers.SerializerMethodField()
     bilan_complet = serializers.SerializerMethodField()
@@ -258,6 +284,9 @@ class MatchDetailSerializer(serializers.ModelSerializer):
             'buts_dom', 'buts_ext', 'buts_dom_mt', 'buts_ext_mt',
             'score', 'analyse', 'contexte', 'bilan_complet', 'mon_pronostic',
         )
+
+    def get_statut(self, obj):
+        return statut_effectif(obj)
 
     def get_analyse(self, obj):
         try:

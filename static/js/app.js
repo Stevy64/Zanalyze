@@ -719,11 +719,23 @@ function zanalyz() {
       return '';
     },
     libStatut(m) {
-      const s = m && m.statut;
+      const s = this.statutEffectif(m);
       if (s === 'termine') return 'Terminé';
       if (s === 'en_cours') return 'En cours';
       if (s === 'reporte') return 'Reporté';
       return 'À venir';
+    },
+    /** Snapshot Engine ~2 h : un coup d'envoi passé reste souvent `a_venir`. */
+    statutEffectif(m) {
+      if (!m) return 'a_venir';
+      const s = m.statut;
+      if (s === 'termine' || s === 'en_cours' || s === 'reporte') return s;
+      const t = new Date(m.coup_denvoi).getTime();
+      if (!Number.isNaN(t) && t <= Date.now()) return 'en_cours';
+      return s || 'a_venir';
+    },
+    estEnCours(m) {
+      return this.statutEffectif(m) === 'en_cours';
     },
 
     async chargerInfo() {

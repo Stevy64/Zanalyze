@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=101">
+  <link rel="stylesheet" href="/static/css/app.css?v=102">
 </head>
 <body
   x-data="zanalyz()"
@@ -204,10 +204,10 @@
                 <div class="tags">
                   <span class="tag"><span x-html="icon('trophy','icon icon-sm')"></span><span x-text="m.competition.code"></span></span>
                   <span class="tag"><span x-html="icon('calendar','icon icon-sm')"></span><span x-text="jourCourt(m.coup_denvoi)"></span></span>
-                  <span class="tag" x-show="m.statut === 'a_venir' || m.statut === 'reporte'">
+                  <span class="tag" x-show="statutEffectif(m) === 'a_venir' || m.statut === 'reporte'">
                     <span x-html="icon('clock','icon icon-sm')"></span><span x-text="heure(m.coup_denvoi)"></span>
                   </span>
-                  <span class="tag tag-live" x-show="m.statut === 'en_cours'" x-cloak>
+                  <span class="tag tag-live" x-show="estEnCours(m)" x-cloak>
                     <span class="live-dot" aria-hidden="true"></span>
                     En cours
                   </span>
@@ -339,10 +339,10 @@
               <div class="badges-row">
                 <span class="badge soft" x-text="fiche.competition.code"></span>
                 <span class="badge soft"
-                  :class="fiche.statut === 'en_cours' ? 'badge-live' : ''"
+                  :class="estEnCours(fiche) ? 'badge-live' : ''"
                   x-text="libStatut(fiche)"></span>
               </div>
-              <div class="prono-box" x-show="fiche.statut === 'a_venir'" x-cloak>
+              <div class="prono-box" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak>
                 <div class="prono-head">
                   <strong>Challenge 1X2</strong>
                   <span class="hint" x-show="peutProno">+2 pts (participation) · +12 si OK · bonus série</span>
@@ -1280,12 +1280,12 @@
                   <span class="flag-wrap" x-html="drapeauComp(bloc.competition)"></span>
                   <span x-text="bloc.competition.code"></span>
                 </span>
-                <span class="cj-live" x-show="bloc.statut === 'en_cours' && !jourPasseCompos" x-cloak>
+                <span class="cj-live" x-show="estEnCours(bloc) && !jourPasseCompos" x-cloak>
                   <span class="live-dot" aria-hidden="true"></span>
                   En cours
                 </span>
-                <span class="cj-horaire" x-show="bloc.statut === 'a_venir' && !jourPasseCompos" x-text="heure(bloc.coup_denvoi)"></span>
-                <span class="cj-horaire" x-show="bloc.termine || jourPasseCompos || (bloc.statut === 'en_cours' && bloc.score)" x-cloak x-text="bloc.score || '—'"></span>
+                <span class="cj-horaire" x-show="statutEffectif(bloc) === 'a_venir' && !jourPasseCompos" x-text="heure(bloc.coup_denvoi)"></span>
+                <span class="cj-horaire" x-show="bloc.termine || jourPasseCompos || (estEnCours(bloc) && bloc.score)" x-cloak x-text="bloc.score || '—'"></span>
               </div>
               <div class="cj-teams">
                 <div class="cj-club">
@@ -1633,7 +1633,7 @@
             <strong x-text="apercu.domicile.nom_court + ' – ' + apercu.exterieur.nom_court"></strong>
             <p x-text="apercu.competition.nom + ' · ' + dateHeure(apercu.coup_denvoi)"></p>
             <p class="apercu-score" x-show="apercu.score" x-cloak x-text="apercu.score"></p>
-            <p class="hint hint-live" x-show="apercu.statut === 'en_cours'" x-cloak>
+            <p class="hint hint-live" x-show="estEnCours(apercu)" x-cloak>
               <span class="live-dot" aria-hidden="true"></span> Match en cours
             </p>
             <p class="hint" x-show="apercu.statut === 'termine'" x-cloak>Match terminé — bilan des tips</p>
@@ -1974,7 +1974,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=101"></script>
+  <script defer src="/static/js/app.js?v=102"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

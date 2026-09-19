@@ -61,6 +61,20 @@ class ApiMatchsQueriesTests(TestCase):
         self.assertEqual(codes, {'LIGA'})
         self.assertTrue(all(row['competition']['pays'] == 'Espagne' for row in r.json()['results']))
 
+    def test_statut_en_cours_si_coup_denvoi_passe(self):
+        """Même si la DB dit a_venir, l’API expose en_cours après le coup d’envoi."""
+        from datetime import timedelta
+        m = Match.objects.filter(sofascore_id=900000).first()
+        m.statut = 'a_venir'
+        m.coup_denvoi = timezone.now() - timedelta(minutes=20)
+        m.save(update_fields=['statut', 'coup_denvoi'])
+        r = self.client.get('/api/v1/matchs/', {'depuis': m.coup_denvoi.date().isoformat()})
+        self.assertEqual(r.status_code, 200)
+        row = next(x for x in r.json()['results'] if x['id'] == m.id)
+        self.assertEqual(row['statut'], 'en_cours')
+        detail = self.client.get(f'/api/v1/matchs/{m.id}/')
+        self.assertEqual(detail.json()['statut'], 'en_cours')
+
     def test_liste_moins_de_six_requetes(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
