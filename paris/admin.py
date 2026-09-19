@@ -5,9 +5,9 @@ from django.utils import timezone
 
 from paris.dashboard import build_dashboard_stats
 from paris.models import (
-    Analyse, Competition, Contexte, Cote, Equipe, Match, MessageChat, Option,
-    Profil, PronosticPremium, PropositionParis, ReglageSite, TraceActivite,
-    VisiteJour, Vote, VoteOption,
+    Analyse, Competition, Contexte, Cote, Equipe, HistoriqueAbonnement, Match,
+    MessageChat, Option, Profil, PronosticPremium, PropositionParis, ReglageSite,
+    TraceActivite, VisiteJour, Vote, VoteOption,
 )
 
 # Dashboard activité sur l’index admin.
@@ -215,17 +215,56 @@ class VoteOptionAdmin(admin.ModelAdmin):
     list_filter = ('choix',)
 
 
+class HistoriqueAbonnementInline(admin.TabularInline):
+    model = HistoriqueAbonnement
+    extra = 0
+    can_delete = False
+    fields = ('created_at', 'type', 'ordre', 'mois', 'debut', 'expire_le', 'admin_user', 'note')
+    readonly_fields = fields
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(HistoriqueAbonnement)
+class HistoriqueAbonnementAdmin(admin.ModelAdmin):
+    list_display = (
+        'profil', 'type', 'libelle_cycle', 'mois', 'debut', 'expire_le',
+        'admin_user', 'created_at',
+    )
+    list_filter = ('type',)
+    search_fields = ('profil__user__username', 'note', 'admin_user__username')
+    autocomplete_fields = ('profil', 'admin_user')
+    readonly_fields = (
+        'profil', 'type', 'ordre', 'mois', 'debut', 'expire_le',
+        'admin_user', 'note', 'created_at',
+    )
+
+    @admin.display(description='Cycle', ordering='ordre')
+    def libelle_cycle(self, obj):
+        return obj.libelle_ordre
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Profil)
 class ProfilAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'badge_categorie', 'points_premium', 'expire_court', 'note_admin',
+        'user', 'badge_categorie', 'cycle_premium', 'points_premium',
+        'expire_court', 'note_admin',
     )
     list_filter = ('categorie',)
     search_fields = ('user__username', 'note_admin')
     autocomplete_fields = ('user',)
     list_editable = ()
     actions = ('octroyer_vip', 'prolonger_vip', 'retirer_vip')
-    readonly_fields = ()
+    inlines = (HistoriqueAbonnementInline,)
+    readonly_fields = ('premium_acceptations', 'resume_cycle')
     fieldsets = (
         (None, {
             'fields': (
@@ -236,6 +275,13 @@ class ProfilAdmin(admin.ModelAdmin):
                 'À l’octroi, l’abonnement Premium dure 1 mois. '
                 'Tu peux prolonger via l’action « Prolonger Premium (+1 mois) » '
                 'ou en modifiant « VIP expire le ».'
+            ),
+        }),
+        ('Historique abonnement', {
+            'fields': ('premium_acceptations', 'resume_cycle'),
+            'description': (
+                '1 = premier abonnement ; 2+ = renouvellements '
+                '(renouvellement n°1, n°2…). Journal détaillé ci-dessous.'
             ),
         }),
     )
@@ -261,6 +307,14 @@ class ProfilAdmin(admin.ModelAdmin):
             'background:#f3f4f6;color:#6b7280;">Membre</span>',
         )
 
+    @admin.display(description='Cycle', ordering='premium_acceptations')
+    def cycle_premium(self, obj):
+        return obj.libelle_cycle_premium
+
+    @admin.display(description='Résumé')
+    def resume_cycle(self, obj):
+        return obj.libelle_cycle_premium
+
     @admin.display(description='Expire', ordering='vip_expire_le')
     def expire_court(self, obj):
         if not obj.vip_expire_le:
@@ -284,16 +338,27 @@ class ProfilAdmin(admin.ModelAdmin):
         n = 0
         for profil in queryset:
             etait_premium = profil.abonnement_vip_actif
+            deja = profil.a_deja_ete_premium
             profil.activer_vip(mois=1)
+            type_evt = 'renouvellement' if deja else 'premier'
+            profil.enregistrer_acceptation_premium(
+                type_evt=type_evt,
+                mois=1,
+                admin_user=request.user,
+                note='Octroi admin (+1 mois)',
+            )
             profil.save(update_fields=[
                 'categorie', 'vip_depuis', 'vip_expire_le', 'accueil_salon',
+                'premium_acceptations',
             ])
-            publier_accueil_salon(profil, renouvellement=etait_premium)
+            publier_accueil_salon(
+                profil, renouvellement=etait_premium or deja,
+            )
             enregistrer_trace(
                 'vip',
-                f'Premium octroyé · {profil.user.username}',
+                f'Premium octroyé · {profil.user.username} · {profil.libelle_cycle_premium}',
                 user=request.user,
-                detail='+1 mois',
+                detail=f'+1 mois · acceptations={profil.premium_acceptations}',
                 path='/admin/paris/profil/',
             )
             n += 1
@@ -310,15 +375,22 @@ class ProfilAdmin(admin.ModelAdmin):
         n = 0
         for profil in queryset:
             profil.prolonger_vip(mois=1)
+            profil.enregistrer_acceptation_premium(
+                type_evt='prolongation',
+                mois=1,
+                admin_user=request.user,
+                note='Prolongation admin (+1 mois)',
+            )
             profil.save(update_fields=[
                 'categorie', 'vip_depuis', 'vip_expire_le', 'accueil_salon',
+                'premium_acceptations',
             ])
             publier_accueil_salon(profil, renouvellement=True)
             enregistrer_trace(
                 'vip',
-                f'Premium prolongé · {profil.user.username}',
+                f'Premium prolongé · {profil.user.username} · {profil.libelle_cycle_premium}',
                 user=request.user,
-                detail='+1 mois',
+                detail=f'+1 mois · acceptations={profil.premium_acceptations}',
                 path='/admin/paris/profil/',
             )
             n += 1
@@ -334,6 +406,11 @@ class ProfilAdmin(admin.ModelAdmin):
         n = 0
         for profil in queryset:
             profil.retirer_vip()
+            profil.enregistrer_acceptation_premium(
+                type_evt='retrait',
+                admin_user=request.user,
+                note='Retrait admin',
+            )
             profil.save(update_fields=['categorie', 'vip_expire_le', 'accueil_salon'])
             enregistrer_trace(
                 'vip',

@@ -53,11 +53,24 @@ def _payload_auth(user):
 def _payload_vip_public(user=None):
     cfg = ReglageSite.get_solo()
     pseudo = None
+    renouvellement = False
     if user is not None and getattr(user, 'is_authenticated', False):
         pseudo = (getattr(user, 'username', None) or '').strip() or None
+        profil = getattr(user, 'profil', None)
+        if profil is None:
+            try:
+                from paris.models import Profil
+                profil, _ = Profil.objects.get_or_create(user=user)
+            except Exception:  # noqa: BLE001
+                profil = None
+        if profil is not None:
+            renouvellement = bool(profil.a_deja_ete_premium)
     return {
-        'whatsapp_vip_url': cfg.lien_whatsapp_vip(pseudo=pseudo),
+        'whatsapp_vip_url': cfg.lien_whatsapp_vip(
+            pseudo=pseudo, renouvellement=renouvellement,
+        ),
         'vip_tarif_libelle': cfg.vip_tarif_libelle or 'Premium Zanalyze',
+        'premium_renouvellement': renouvellement,
     }
 
 

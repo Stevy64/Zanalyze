@@ -280,6 +280,13 @@ class Profil(models.Model):
         default=False,
         help_text='Si vrai, le prochain chargement app ouvre le Salon avec un message de bienvenue.',
     )
+    premium_acceptations = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            'Nombre d’acceptations Premium (1 = premier abo, 2+ = renouvellements). '
+            'Incrémenté à chaque octroi ou prolongation admin.'
+        ),
+    )
 
     class Meta:
         verbose_name = 'Profil utilisateur'
@@ -300,6 +307,22 @@ class Profil(models.Model):
         if self.vip_expire_le is None:
             return True  # legacy sans date → actif jusqu’à retrait
         return self.vip_expire_le > timezone.now()
+
+    @property
+    def a_deja_ete_premium(self) -> bool:
+        """True si au moins une acceptation a déjà été enregistrée (ou legacy vip_depuis)."""
+        if self.premium_acceptations > 0:
+            return True
+        return bool(self.vip_depuis)
+
+    @property
+    def libelle_cycle_premium(self) -> str:
+        n = int(self.premium_acceptations or 0)
+        if n <= 0:
+            return 'Aucun'
+        if n == 1:
+            return '1er abonnement'
+        return f'Renouvellement n°{n - 1} (cycle {n})'
 
     def activer_vip(self, mois: int = 1) -> None:
         """Active (ou renouvelle) le Premium pour N mois à partir de maintenant."""
@@ -324,6 +347,97 @@ class Profil(models.Model):
         self.categorie = 'membre'
         self.vip_expire_le = timezone.now()
         self.accueil_salon = False
+
+    def enregistrer_acceptation_premium(
+        self,
+        *,
+        type_evt: str,
+        mois: int = 1,
+        admin_user=None,
+        note: str = '',
+    ):
+        """Journalise une acceptation et incrémente le compteur (sauf retrait)."""
+        if type_evt == 'retrait':
+            HistoriqueAbonnement.objects.create(
+                profil=self,
+                type='retrait',
+                ordre=int(self.premium_acceptations or 0),
+                mois=0,
+                debut=timezone.now(),
+                expire_le=self.vip_expire_le,
+                admin_user=admin_user if getattr(admin_user, 'pk', None) else None,
+                note=(note or '')[:200],
+            )
+            return None
+
+        ordre = int(self.premium_acceptations or 0) + 1
+        if type_evt == 'premier' and ordre > 1:
+            type_evt = 'renouvellement'
+        if type_evt == 'renouvellement' and ordre == 1:
+            type_evt = 'premier'
+        if type_evt == 'prolongation' and ordre == 1:
+            type_evt = 'premier'
+
+        self.premium_acceptations = ordre
+        HistoriqueAbonnement.objects.create(
+            profil=self,
+            type=type_evt,
+            ordre=ordre,
+            mois=max(1, int(mois or 1)),
+            debut=self.vip_depuis or timezone.now(),
+            expire_le=self.vip_expire_le,
+            admin_user=admin_user if getattr(admin_user, 'pk', None) else None,
+            note=(note or '')[:200],
+        )
+        return ordre
+
+
+class HistoriqueAbonnement(models.Model):
+    """Journal des abonnements Premium (premier, renouvellements, retraits)."""
+    TYPES = [
+        ('premier', 'Premier abonnement'),
+        ('renouvellement', 'Renouvellement'),
+        ('prolongation', 'Prolongation'),
+        ('retrait', 'Retrait'),
+    ]
+    profil = models.ForeignKey(
+        Profil,
+        on_delete=models.CASCADE,
+        related_name='historique_abonnements',
+    )
+    type = models.CharField(max_length=20, choices=TYPES, db_index=True)
+    ordre = models.PositiveIntegerField(
+        default=0,
+        help_text='N° de cycle (1 = premier, 2 = 1er renouvellement, …).',
+    )
+    mois = models.PositiveSmallIntegerField(default=1)
+    debut = models.DateTimeField()
+    expire_le = models.DateTimeField(null=True, blank=True)
+    admin_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='acceptations_premium',
+    )
+    note = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Historique abonnement'
+        verbose_name_plural = 'Historique abonnements'
+
+    def __str__(self):
+        return f'{self.profil_id} · {self.get_type_display()} #{self.ordre}'
+
+    @property
+    def libelle_ordre(self) -> str:
+        if self.type == 'retrait':
+            return 'Retrait'
+        if self.ordre <= 1:
+            return '1er abonnement'
+        return f'Renouvellement n°{self.ordre - 1}'
 
 
 class PronosticPremium(models.Model):
@@ -360,6 +474,10 @@ class PronosticPremium(models.Model):
 MSG_DEMANDE_PREMIUM = (
     'Bonjour, je suis {pseudo}, Zanalyste sur Zanalyze. '
     'Je souhaite devenir Premium.'
+)
+MSG_RENOUVELLEMENT_PREMIUM = (
+    'Bonjour, je suis {pseudo}, Zanalyste sur Zanalyze. '
+    'Je souhaite renouveler mon abonnement Premium.'
 )
 
 
@@ -425,7 +543,7 @@ class ReglageSite(models.Model):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
-    def message_demande_premium(self, pseudo=None) -> str:
+    def message_demande_premium(self, pseudo=None, renouvellement=False) -> str:
         """Message WhatsApp Premium, avec le pseudo du Zanalyste pour l’admin."""
         template = (self.whatsapp_message or MSG_DEMANDE_PREMIUM).strip() or MSG_DEMANDE_PREMIUM
         for old, new in (
@@ -435,6 +553,18 @@ class ReglageSite(models.Model):
             ('ZanalyZ', 'Zanalyze'),
         ):
             template = template.replace(old, new)
+
+        if renouvellement:
+            if 'devenir Premium' in template:
+                template = template.replace(
+                    'Je souhaite devenir Premium',
+                    'Je souhaite renouveler mon abonnement Premium',
+                )
+            elif template.rstrip('.') == MSG_DEMANDE_PREMIUM.rstrip('.'):
+                template = MSG_RENOUVELLEMENT_PREMIUM
+            elif 'renouveler mon abonnement Premium' not in template:
+                template = MSG_RENOUVELLEMENT_PREMIUM
+
         name = (pseudo or '').strip() or 'un Zanalyste'
         if '{pseudo}' in template or '{username}' in template:
             return (
@@ -466,12 +596,12 @@ class ReglageSite(models.Model):
             or os.environ.get('C2B_WHATSAPP_PHONE', ''),
         )
 
-    def lien_whatsapp_vip(self, pseudo=None) -> str:
+    def lien_whatsapp_vip(self, pseudo=None, renouvellement=False) -> str:
         from urllib.parse import quote
         phone = self._telephone_whatsapp()
         if not phone:
             return ''
-        msg = self.message_demande_premium(pseudo)
+        msg = self.message_demande_premium(pseudo, renouvellement=renouvellement)
         return f'https://wa.me/{phone}?text={quote(msg)}'
 
 
