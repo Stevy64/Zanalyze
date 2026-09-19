@@ -718,6 +718,13 @@ function zanalyz() {
       if (n === 3) return icon('flame', 'icon icon-sm');
       return '';
     },
+    libStatut(m) {
+      const s = m && m.statut;
+      if (s === 'termine') return 'Terminé';
+      if (s === 'en_cours') return 'En cours';
+      if (s === 'reporte') return 'Reporté';
+      return 'À venir';
+    },
 
     async chargerInfo() {
       try {
