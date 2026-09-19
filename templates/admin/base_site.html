@@ -15,14 +15,44 @@
 
 {% block responsive %}
 {{ block.super }}
-{# Après responsive.css Django pour gagner la cascade mobile #}
-<link rel="stylesheet" href="{% static 'admin/css/zanalyz_admin.css' %}?v=71">
+<link rel="stylesheet" href="{% static 'admin/css/zanalyz_admin.css' %}?v=82">
 {% endblock %}
 
 {% block branding %}
 <div id="site-name">
   <a href="{% url 'admin:index' %}">Zanalyze</a>
 </div>
+{% endblock %}
+
+{% block content_title %}
+{% if cl %}
+<h1 class="zyz-page-title">{{ cl.opts.verbose_name_plural|capfirst }}</h1>
+{% elif title %}
+<h1 class="zyz-page-title">{{ title }}</h1>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+{{ block.super }}
+<div id="zyz-detail-modal" class="zyz-modal" hidden aria-hidden="true">
+  <div class="zyz-modal-backdrop" data-zyz-close></div>
+  <div class="zyz-modal-card" role="dialog" aria-modal="true" aria-labelledby="zyz-modal-title">
+    <div class="zyz-modal-head">
+      <div class="zyz-modal-avatar" id="zyz-modal-avatar">?</div>
+      <div class="zyz-modal-titles">
+        <p class="zyz-modal-kicker" id="zyz-modal-kicker">Détail</p>
+        <h2 id="zyz-modal-title">—</h2>
+      </div>
+      <button type="button" class="zyz-modal-x" data-zyz-close aria-label="Fermer">×</button>
+    </div>
+    <ul class="zyz-modal-fields" id="zyz-modal-fields"></ul>
+    <div class="zyz-modal-actions">
+      <button type="button" class="zyz-btn zyz-btn-ghost" data-zyz-close>Fermer</button>
+      <a class="zyz-btn zyz-btn-dark" id="zyz-modal-edit" href="#">Modifier</a>
+    </div>
+  </div>
+</div>
+<script src="{% static 'admin/js/zanalyz_admin.js' %}?v=82"></script>
 {% endblock %}
 
 {% block usertools %}

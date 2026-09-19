@@ -51,6 +51,22 @@ Recharge la page Matchs. Le filtre date doit correspondre au snapshot (`--jours 
 
 La PWA déclenche aussi un import async au chargement (`/api/v1/info/`), mais la **task PA** garantit la fraîcheur même sans visite.
 
+### C. Purge rétention (quotidien)
+
+Scheduled task PA (1×/jour, ex. `10 4 * * *`) :
+
+```bash
+cd ~/Zanalyze
+source ~/.virtualenvs/zanalyz/bin/activate
+set -a && source .env && set +a
+python manage.py purger_retention
+```
+
+Effets :
+- messages Salon > **24 h**
+- matchs terminés > **1 mois**
+- comptes inactifs > **6 mois** (hors staff)
+
 Fallback manuel (PC) : `make sync-dev` puis `make snapshot-export-dev` dans **ce** repo.
 
 ---

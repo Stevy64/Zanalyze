@@ -530,7 +530,16 @@ function zanalyz() {
     chatSince: null,
     chatImage: null,
     chatImagePreview: '',
+    chatPieceKind: '',
+    chatPieceNom: '',
+    chatStickersOpen: false,
+    chatStickers: [
+      '🔥', '⚽', '🏆', '💪', '😱', '😂', '👏', '✅', '❌', '🎯',
+      '😤', '🤝', '💯', '🚀', '😴', '🤯', '🥇', '📉', '📈', '🙌',
+    ],
     chatLightboxUrl: '',
+    vipExpireLe: null,
+    sheetVipExpire: false,
     _chatPoll: null,
     _chatStickBottom: true,
     estVip: false,
@@ -541,6 +550,8 @@ function zanalyz() {
     whatsappVipUrl: '',
     vipTarifLibelle: 'Premium Zanalyze',
     sheetVip: false,
+    dialog: null,
+    _dialogResolve: null,
     horsLigne: false,
     engineMeta: null,
     syncBusy: false,
@@ -700,6 +711,13 @@ function zanalyz() {
       }[code || this.gradePremium] || 'badge-check';
       return icon(name, 'icon icon-sm');
     },
+    iconRang(rang) {
+      const n = Number(rang);
+      if (n === 1) return icon('trophy', 'icon icon-sm');
+      if (n === 2) return icon('sparkles', 'icon icon-sm');
+      if (n === 3) return icon('flame', 'icon icon-sm');
+      return '';
+    },
 
     async chargerInfo() {
       try {
@@ -721,10 +739,80 @@ function zanalyz() {
         if (this._progression) this.classementMoi = this._progression;
         this.whatsappVipUrl = (data && data.whatsapp_vip_url) || '';
         this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'Premium Zanalyze';
+        this.vipExpireLe = (data && data.vip_expire_le) || null;
         if (data && data.version_moteur) this.moteur = data.version_moteur;
         if (data && data.engine) this.engineMeta = data.engine;
         this.demarrerUnreadPoll();
+        this.verifierAlertePremium();
+        if (data && data.accueil_salon && (data.est_premium || data.est_vip || data.categorie === 'premium')) {
+          this.$nextTick(() => this.lancerAccueilSalon());
+        }
       } catch (_) { /* hors ligne */ }
+    },
+
+    async lancerAccueilSalon() {
+      if (this._accueilSalonBusy) return;
+      this._accueilSalonBusy = true;
+      try {
+        await fetch('/api/v1/salon/accueil/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'X-CSRFToken': csrf(),
+          },
+        });
+      } catch (_) { /* ignore */ }
+      if (this.page !== 'salon') this.go('/salon');
+      await this.ouvrirDialog({
+        titre: 'Bienvenue dans le Salon Premium',
+        message: 'Toute la communauté vient d’être prévenue. Pose-toi, dis bonjour, et profite des échanges entre Premium.',
+        confirmLabel: 'C’est parti',
+        showCancel: false,
+        tone: 'warn',
+        icon: 'crown',
+      });
+      this._accueilSalonBusy = false;
+    },
+
+    verifierAlertePremium() {
+      if (!this.peutVip || this.estAdmin || !this.vipExpireLe) {
+        this.sheetVipExpire = false;
+        return;
+      }
+      const exp = new Date(this.vipExpireLe);
+      if (Number.isNaN(exp.getTime())) return;
+      const ms = exp.getTime() - Date.now();
+      const jours = ms / (24 * 3600 * 1000);
+      if (jours <= 0 || jours > 3) {
+        this.sheetVipExpire = false;
+        return;
+      }
+      const cle = 'vipwarn:' + this.vipExpireLe;
+      try {
+        if (sessionStorage.getItem(cle) === '1') return;
+      } catch (_) { /* private mode */ }
+      this.sheetVipExpire = true;
+      document.body.classList.add('sheet-open');
+    },
+
+    fermerAlertePremium(memoriser = true) {
+      this.sheetVipExpire = false;
+      if (!this.sheetJustif && !this.sheetCompos && !this.sheetApercu && !this.sheetAuth
+          && !this.sheetClub && !this.sheetInstall && !this.sheetVip && !this.sheetClassement && !this.sheetCgu) {
+        document.body.classList.remove('sheet-open');
+      }
+      if (!memoriser || !this.vipExpireLe) return;
+      try {
+        sessionStorage.setItem('vipwarn:' + this.vipExpireLe, '1');
+      } catch (_) { /* ignore */ }
+    },
+
+    joursRestantsPremium() {
+      if (!this.vipExpireLe) return null;
+      const exp = new Date(this.vipExpireLe);
+      if (Number.isNaN(exp.getTime())) return null;
+      return Math.max(0, Math.ceil((exp.getTime() - Date.now()) / (24 * 3600 * 1000)));
     },
 
     async syncEngine(force = false) {
@@ -854,6 +942,14 @@ function zanalyz() {
     },
 
     fermerSheets() {
+      if (this.dialog) {
+        this.repondreDialog(false);
+        return;
+      }
+      if (this.sheetVipExpire) {
+        this.fermerAlertePremium(true);
+        return;
+      }
       if (this.chatLightboxUrl) {
         this.fermerChatImage();
         return;
@@ -1455,6 +1551,75 @@ function zanalyz() {
     sortirSalon() {
       this.stopChatPoll();
       this.go('/');
+    },
+
+    ouvrirDialog(opts = {}) {
+      return new Promise((resolve) => {
+        if (this._dialogResolve) {
+          this._dialogResolve(false);
+          this._dialogResolve = null;
+        }
+        this.dialog = {
+          titre: opts.titre || 'Confirmation',
+          message: opts.message || '',
+          confirmLabel: opts.confirmLabel || 'Confirmer',
+          cancelLabel: opts.cancelLabel || 'Annuler',
+          tone: opts.tone || 'neutral', // neutral | danger | warn
+          icon: opts.icon || (opts.tone === 'danger' ? 'log-out' : (opts.tone === 'warn' ? 'clock' : 'info')),
+          showCancel: opts.showCancel !== false,
+        };
+        this._dialogResolve = resolve;
+        document.body.classList.add('sheet-open');
+      });
+    },
+
+    repondreDialog(ok) {
+      const resolve = this._dialogResolve;
+      this._dialogResolve = null;
+      this.dialog = null;
+      if (!this.sheetJustif && !this.sheetCompos && !this.sheetApercu && !this.sheetAuth
+          && !this.sheetClub && !this.sheetInstall && !this.sheetVip && !this.sheetClassement
+          && !this.sheetCgu && !this.sheetVipExpire) {
+        document.body.classList.remove('sheet-open');
+      }
+      if (resolve) resolve(!!ok);
+    },
+
+    async confirmerSortirSalon() {
+      const ok = await this.ouvrirDialog({
+        titre: 'Quitter le Salon ?',
+        message: 'Tu quittes le Salon Premium ? Reviens quand tu veux.',
+        confirmLabel: 'Sortir',
+        cancelLabel: 'Rester',
+        tone: 'danger',
+        icon: 'log-out',
+      });
+      if (ok) this.sortirSalon();
+    },
+
+    async confirmerDeconnexion() {
+      const ok = await this.ouvrirDialog({
+        titre: 'Se déconnecter ?',
+        message: 'Tu quitteras ton compte sur cet appareil. Tu pourras te reconnecter à tout moment.',
+        confirmLabel: 'Se déconnecter',
+        cancelLabel: 'Annuler',
+        tone: 'danger',
+        icon: 'log-out',
+      });
+      if (ok) this.authLogout();
+    },
+
+    classeBandeClassement(rang) {
+      const n = Math.max(1, (this.classement && this.classement.length) || 1);
+      const r = Math.max(1, Number(rang) || 1);
+      if (n === 1) return 'cl-band-vert';
+      // Top k/10 selon le rang parmi les participants.
+      const dixieme = Math.min(10, Math.ceil((r / n) * 10));
+      if (dixieme <= 2) return 'cl-band-vert';
+      if (dixieme <= 5) return 'cl-band-bleu';
+      if (dixieme <= 8) return 'cl-band-jaune';
+      if (dixieme <= 9) return 'cl-band-orange';
+      return 'cl-band-rouge';
     },
 
     libSalonEnLigne() {
@@ -2476,24 +2641,44 @@ function zanalyz() {
       const file = ev.target && ev.target.files && ev.target.files[0];
       if (this.$refs.salonImageInput) this.$refs.salonImageInput.value = '';
       if (!file) return;
-      if (!/^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type || '')) {
-        this.chatErr = 'Formats acceptés : JPG, PNG, WEBP, GIF.';
+      const type = (file.type || '').toLowerCase();
+      const name = (file.name || '').toLowerCase();
+      const isPdf = type === 'application/pdf' || name.endsWith('.pdf');
+      const isImg = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(type);
+      if (!isPdf && !isImg) {
+        this.chatErr = 'Formats acceptés : JPG, PNG, WEBP, GIF, PDF.';
         return;
       }
       if (file.size > 5 * 1024 * 1024) {
-        this.chatErr = 'Image trop lourde (5 Mo max).';
+        this.chatErr = 'Fichier trop lourd (5 Mo max).';
         return;
       }
       this.chatErr = '';
+      this.chatStickersOpen = false;
       if (this.chatImagePreview) URL.revokeObjectURL(this.chatImagePreview);
       this.chatImage = file;
-      this.chatImagePreview = URL.createObjectURL(file);
+      this.chatPieceNom = file.name || (isPdf ? 'document.pdf' : 'image');
+      this.chatPieceKind = isPdf ? 'pdf' : 'image';
+      this.chatImagePreview = isPdf
+        ? ''
+        : URL.createObjectURL(file);
+      if (isPdf) this.chatImagePreview = 'pdf';
     },
 
     clearChatImage() {
-      if (this.chatImagePreview) URL.revokeObjectURL(this.chatImagePreview);
+      if (this.chatImagePreview && this.chatPieceKind !== 'pdf') {
+        URL.revokeObjectURL(this.chatImagePreview);
+      }
       this.chatImage = null;
       this.chatImagePreview = '';
+      this.chatPieceKind = '';
+      this.chatPieceNom = '';
+    },
+
+    insererSticker(s) {
+      const cur = this.chatDraft || '';
+      this.chatDraft = (cur + (cur && !cur.endsWith(' ') ? ' ' : '') + s).slice(0, 400);
+      this.chatStickersOpen = false;
     },
 
     enregistrerSW() {

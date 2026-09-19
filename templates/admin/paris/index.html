@@ -11,43 +11,71 @@
     <div class="zyz-top-copy">
       <p class="zyz-kicker">Administration</p>
       <h1>Tableau de bord</h1>
-      <p class="zyz-lead">VIP, matchs, tips et salon — actions prioritaires en un clic.</p>
+      <p class="zyz-lead">Visiteurs, inscriptions et activité — pilotage mobile-first.</p>
     </div>
     <div class="zyz-top-cta">
-      <a class="zyz-btn zyz-btn-primary" href="{% url 'admin:paris_profil_changelist' %}">Gérer les VIP</a>
-      <a class="zyz-btn zyz-btn-dark" href="{% url 'admin:paris_reglagesite_changelist' %}">WhatsApp &amp; tarif</a>
-      {% if zanalyz_reglages and zanalyz_reglages.lien_whatsapp_vip %}
-      <a class="zyz-btn zyz-btn-ghost" href="{{ zanalyz_reglages.lien_whatsapp_vip }}" target="_blank" rel="noopener">Ouvrir WhatsApp</a>
-      {% endif %}
+      <a class="zyz-btn zyz-btn-primary" href="{% url 'admin:paris_profil_changelist' %}">Gérer Premium</a>
+      <a class="zyz-btn zyz-btn-dark" href="{% url 'admin:auth_user_changelist' %}">Utilisateurs</a>
+      <a class="zyz-btn zyz-btn-ghost" href="{% url 'admin:paris_traceactivite_changelist' %}">Traces</a>
     </div>
   </header>
 
-  <section class="zyz-metrics" aria-label="Indicateurs">
-    <div class="zyz-metric">
-      <strong>{{ zanalyz_stats.n_users }}</strong>
-      <span>Comptes</span>
-    </div>
+  <section class="zyz-metrics zyz-metrics-lg" aria-label="Indicateurs clés">
     <div class="zyz-metric accent">
-      <strong>{{ zanalyz_stats.n_vip }}</strong>
-      <span>VIP</span>
-    </div>
-    <div class="zyz-metric">
-      <strong>{{ zanalyz_stats.n_membres }}</strong>
-      <span>Membres</span>
-    </div>
-    <div class="zyz-metric">
-      <strong>{{ zanalyz_stats.n_inscrits_7j }}</strong>
-      <span>Inscrits 7 j</span>
-    </div>
-    <div class="zyz-metric">
-      <strong>{{ zanalyz_stats.n_a_venir }}</strong>
-      <span>À venir</span>
+      <span class="zyz-metric-label">Visiteurs aujourd’hui</span>
+      <strong>{{ zanalyz_stats.n_visiteurs_aujourdhui }}</strong>
+      <span class="zyz-metric-sub">{{ zanalyz_stats.n_pages_aujourdhui }} pages · {{ zanalyz_stats.n_visiteurs_7j }} / 7 j</span>
     </div>
     <div class="zyz-metric ok">
-      <strong>{% if zanalyz_stats.taux_tips != None %}{{ zanalyz_stats.taux_tips }}%{% else %}—{% endif %}</strong>
-      <span>Réussite P/F</span>
+      <span class="zyz-metric-label">Nouveaux comptes</span>
+      <strong>{{ zanalyz_stats.n_inscrits_aujourdhui }}</strong>
+      <span class="zyz-metric-sub">{{ zanalyz_stats.n_inscrits_7j }} cette semaine</span>
+    </div>
+    <div class="zyz-metric">
+      <span class="zyz-metric-label">Comptes actifs</span>
+      <strong>{{ zanalyz_stats.n_users }}</strong>
+      <span class="zyz-metric-sub">{{ zanalyz_stats.n_actifs_7j }} connectés / 7 j</span>
+    </div>
+    <div class="zyz-metric">
+      <span class="zyz-metric-label">Premium</span>
+      <strong>{{ zanalyz_stats.n_vip }}</strong>
+      <span class="zyz-metric-sub">{{ zanalyz_stats.n_membres }} membres</span>
     </div>
   </section>
+
+  <div class="zyz-charts">
+    <section class="zyz-card zyz-chart-card">
+      <div class="zyz-card-head">
+        <h3>Visiteurs / jour</h3>
+        <a href="{% url 'admin:paris_visitejour_changelist' %}">Détail</a>
+      </div>
+      <div class="zyz-bars" role="img" aria-label="Visiteurs des 14 derniers jours">
+        {% for v in zanalyz_stats.visites %}
+        <div class="zyz-bar" title="{{ v.label }} : {{ v.visiteurs }} visiteurs">
+          <div class="zyz-bar-fill" style="--h: {{ v.pct }}%;"></div>
+          <span class="zyz-bar-val">{{ v.visiteurs }}</span>
+          <span class="zyz-bar-lab">{{ v.label }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="zyz-card zyz-chart-card">
+      <div class="zyz-card-head">
+        <h3>Inscriptions / jour</h3>
+        <a href="{% url 'admin:auth_user_changelist' %}">Comptes</a>
+      </div>
+      <div class="zyz-bars zyz-bars-alt" role="img" aria-label="Inscriptions des 14 derniers jours">
+        {% for row in zanalyz_stats.inscriptions %}
+        <div class="zyz-bar" title="{{ row.label }} : {{ row.n }} inscriptions">
+          <div class="zyz-bar-fill" style="--h: {{ row.pct }}%;"></div>
+          <span class="zyz-bar-val">{{ row.n }}</span>
+          <span class="zyz-bar-lab">{{ row.label }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
 
   <section class="zyz-hero-actions" aria-label="Actions principales">
     <a class="zyz-hero-card is-vip" href="{% url 'admin:paris_profil_changelist' %}">
@@ -55,8 +83,17 @@
         <span class="zyz-pill">Prioritaire</span>
         <span class="zyz-hero-count">{{ zanalyz_stats.n_vip }}</span>
       </div>
-      <h2>Profils VIP</h2>
+      <h2>Profils Premium</h2>
       <p>Octroie ou retire le statut après paiement WhatsApp.</p>
+      <span class="zyz-hero-go">Ouvrir →</span>
+    </a>
+    <a class="zyz-hero-card" href="{% url 'admin:paris_traceactivite_changelist' %}">
+      <div class="zyz-hero-card-top">
+        <span class="zyz-pill soft">Live</span>
+        <span class="zyz-hero-count">{{ zanalyz_stats.traces|length }}</span>
+      </div>
+      <h2>Traces d’activité</h2>
+      <p>Connexions, inscriptions, pronostics, salon…</p>
       <span class="zyz-hero-go">Ouvrir →</span>
     </a>
     <a class="zyz-hero-card" href="{% url 'admin:paris_match_changelist' %}?statut__exact=a_venir">
@@ -68,22 +105,13 @@
       <p>Scores, contextes et analyses moteur.</p>
       <span class="zyz-hero-go">Ouvrir →</span>
     </a>
-    <a class="zyz-hero-card" href="{% url 'admin:paris_option_changelist' %}?niveau__exact=prudente">
-      <div class="zyz-hero-card-top">
-        <span class="zyz-pill soft">Tips</span>
-        <span class="zyz-hero-count">{% if zanalyz_stats.taux_tips != None %}{{ zanalyz_stats.taux_tips }}%{% else %}—{% endif %}</span>
-      </div>
-      <h2>Tips Prudente / Filet</h2>
-      <p>{{ zanalyz_stats.n_tips }} tips réglés · suivi des résultats.</p>
-      <span class="zyz-hero-go">Ouvrir →</span>
-    </a>
     <a class="zyz-hero-card" href="{% url 'admin:paris_messagechat_changelist' %}">
       <div class="zyz-hero-card-top">
         <span class="zyz-pill soft">Salon</span>
         <span class="zyz-hero-count">{{ zanalyz_stats.n_msg_actifs }}</span>
       </div>
-      <h2>Salon VIP</h2>
-      <p>Messages actifs (purge automatique 24 h).</p>
+      <h2>Salon Premium</h2>
+      <p>Messages actifs (purge auto 24 h).</p>
       <span class="zyz-hero-go">Ouvrir →</span>
     </a>
   </section>
@@ -91,57 +119,82 @@
   <div class="zyz-main-grid">
     <section class="zyz-card">
       <div class="zyz-card-head">
-        <h3>Derniers VIP</h3>
-        <a href="{% url 'admin:paris_profil_changelist' %}">Tous les profils</a>
+        <h3>Activité récente</h3>
+        <a href="{% url 'admin:paris_traceactivite_changelist' %}">Tout voir</a>
       </div>
-      <ul class="zyz-list">
-        {% for p in zanalyz_stats.derniers_vip %}
-        <li>
-          <div class="zyz-list-main">
-            <a href="{% url 'admin:paris_profil_change' p.pk %}">{{ p.user.username }}</a>
-            <span class="zyz-badge">VIP</span>
+      <ul class="zyz-feed">
+        {% for t in zanalyz_stats.traces %}
+        <li class="zyz-feed-item type-{{ t.type }}">
+          <span class="zyz-feed-dot" aria-hidden="true"></span>
+          <div class="zyz-feed-body">
+            <div class="zyz-feed-top">
+              <strong>{% if t.user %}{{ t.user.username }}{% else %}Anonyme{% endif %}</strong>
+              <span class="zyz-feed-type">{{ t.get_type_display }}</span>
+            </div>
+            <p class="zyz-feed-label">{{ t.label }}</p>
+            {% if t.detail %}<p class="zyz-feed-detail">{{ t.detail|truncatechars:72 }}</p>{% endif %}
           </div>
-          <span class="zyz-meta">{% if p.vip_expire_le %}jusqu’au {{ p.vip_expire_le|date:"d/m/Y" }}{% elif p.vip_depuis %}{{ p.vip_depuis|date:"d/m/Y" }}{% else %}—{% endif %}</span>
+          <time class="zyz-meta">{{ t.created_at|date:"d/m H:i" }}</time>
         </li>
         {% empty %}
-        <li class="zyz-empty-row">Aucun VIP pour l’instant.</li>
+        <li class="zyz-empty-row">Aucune trace pour l’instant — l’activité apparaîtra ici.</li>
         {% endfor %}
       </ul>
     </section>
 
     <section class="zyz-card">
       <div class="zyz-card-head">
-        <h3>Salon VIP · récent</h3>
-        <a href="{% url 'admin:paris_messagechat_changelist' %}">Voir tout</a>
+        <h3>Nouveaux utilisateurs</h3>
+        <a href="{% url 'admin:auth_user_changelist' %}">Tous</a>
       </div>
       <ul class="zyz-list">
-        {% for m in zanalyz_stats.derniers_msg %}
+        {% for u in zanalyz_stats.nouveaux_users %}
         <li>
           <div class="zyz-list-main">
-            <strong>{{ m.auteur.username }}</strong>
-            <span class="zyz-msg">{{ m.texte|truncatechars:48 }}</span>
+            <a href="{% url 'admin:auth_user_change' u.pk %}">{{ u.username }}</a>
+            {% if u.is_staff %}<span class="zyz-badge soft">Staff</span>{% endif %}
           </div>
-          <span class="zyz-meta">{{ m.created_at|date:"H:i" }}</span>
+          <span class="zyz-meta">{{ u.date_joined|date:"d/m/Y H:i" }}</span>
         </li>
         {% empty %}
-        <li class="zyz-empty-row">Aucun message actif.</li>
+        <li class="zyz-empty-row">Aucun compte.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="zyz-card">
+      <div class="zyz-card-head">
+        <h3>Derniers Premium</h3>
+        <a href="{% url 'admin:paris_profil_changelist' %}">Profils</a>
+      </div>
+      <ul class="zyz-list">
+        {% for p in zanalyz_stats.derniers_vip %}
+        <li>
+          <div class="zyz-list-main">
+            <a href="{% url 'admin:paris_profil_change' p.pk %}">{{ p.user.username }}</a>
+            <span class="zyz-badge">Premium</span>
+          </div>
+          <span class="zyz-meta">{% if p.vip_expire_le %}jusqu’au {{ p.vip_expire_le|date:"d/m/Y" }}{% elif p.vip_depuis %}{{ p.vip_depuis|date:"d/m/Y" }}{% else %}—{% endif %}</span>
+        </li>
+        {% empty %}
+        <li class="zyz-empty-row">Aucun Premium pour l’instant.</li>
         {% endfor %}
       </ul>
     </section>
 
     <aside class="zyz-card zyz-side">
       <div class="zyz-card-head">
-        <h3>Workflow VIP</h3>
+        <h3>Workflow Premium</h3>
       </div>
       <ol class="zyz-steps">
-        <li>L’utilisateur demande via WhatsApp</li>
+        <li>Demande via WhatsApp</li>
         <li>Tu confirmes le paiement</li>
-        <li>Profils → action « Octroyer VIP (1 mois) »</li>
-        <li>Si besoin : « Prolonger VIP (+1 mois) » ou date manuelle</li>
+        <li>Profils → « Octroyer Premium »</li>
+        <li>Prolonge ou ajuste la date si besoin</li>
       </ol>
       <div class="zyz-side-actions">
-        <a class="zyz-btn zyz-btn-primary zyz-btn-block" href="{% url 'admin:paris_profil_changelist' %}">Octroyer un VIP</a>
-        <a class="zyz-btn zyz-btn-ghost zyz-btn-block" href="{% url 'admin:paris_reglagesite_changelist' %}">Configurer le lien WhatsApp</a>
+        <a class="zyz-btn zyz-btn-primary zyz-btn-block" href="{% url 'admin:paris_profil_changelist' %}">Octroyer Premium</a>
+        <a class="zyz-btn zyz-btn-ghost zyz-btn-block" href="{% url 'admin:paris_reglagesite_changelist' %}">WhatsApp &amp; tarif</a>
       </div>
       {% if zanalyz_reglages %}
       <div class="zyz-status">
@@ -154,18 +207,21 @@
 
   <section class="zyz-card zyz-catalog">
     <div class="zyz-card-head">
-      <h3>Raccourcis plateforme</h3>
+      <h3>Raccourcis</h3>
     </div>
     <div class="zyz-links">
+      <a href="{% url 'admin:paris_visitejour_changelist' %}"><span>Visites / jour</span></a>
+      <a href="{% url 'admin:paris_traceactivite_changelist' %}"><span>Traces</span></a>
+      <a href="{% url 'admin:auth_user_changelist' %}"><span>Utilisateurs</span></a>
+      <a href="{% url 'admin:paris_profil_changelist' %}"><span>Profils</span></a>
+      <a href="{% url 'admin:paris_match_changelist' %}"><span>Matchs</span></a>
+      <a href="{% url 'admin:paris_propositionparis_changelist' %}"><span>Propositions</span></a>
+      <a href="{% url 'admin:paris_messagechat_changelist' %}"><span>Salon</span></a>
+      <a href="{% url 'admin:paris_reglagesite_changelist' %}"><span>Réglages</span></a>
       <a href="{% url 'admin:paris_competition_changelist' %}"><span>Compétitions</span></a>
       <a href="{% url 'admin:paris_equipe_changelist' %}"><span>Équipes</span></a>
-      <a href="{% url 'admin:paris_match_changelist' %}?statut__exact=termine"><span>Matchs terminés</span></a>
-      <a href="{% url 'admin:paris_analyse_changelist' %}"><span>Analyses moteur</span></a>
-      <a href="{% url 'admin:paris_contexte_changelist' %}"><span>Contextes</span></a>
-      <a href="{% url 'admin:paris_cote_changelist' %}"><span>Cotes</span></a>
-      <a href="{% url 'admin:paris_propositionparis_changelist' %}"><span>Propositions users</span></a>
-      <a href="{% url 'admin:auth_user_changelist' %}"><span>Comptes Django</span></a>
-      <a href="{% url 'admin:paris_reglagesite_changelist' %}"><span>Réglages site</span></a>
+      <a href="{% url 'admin:paris_option_changelist' %}"><span>Tips</span></a>
+      <a href="{% url 'admin:paris_analyse_changelist' %}"><span>Analyses</span></a>
     </div>
   </section>
 </div>

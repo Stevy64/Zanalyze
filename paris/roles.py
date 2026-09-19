@@ -46,6 +46,7 @@ def payload_auth(user) -> dict:
     points = 0
     grade = 'mougou'
     progression = None
+    accueil_salon = False
     if user and getattr(user, 'is_authenticated', False):
         from paris.models import Profil
         from paris.gamification import grade_pour, progression_utilisateur
@@ -58,6 +59,7 @@ def payload_auth(user) -> dict:
         progression = progression_utilisateur(user)
         points = int(progression.get('points', 0) or 0)
         grade = progression.get('grade') or grade_pour(points)
+        accueil_salon = bool(profil.accueil_salon)
     return {
         'authentifie': bool(user and getattr(user, 'is_authenticated', False)),
         'username': user.username if user and getattr(user, 'is_authenticated', False) else None,
@@ -69,4 +71,5 @@ def payload_auth(user) -> dict:
         'points_premium': points,
         'grade_premium': grade,
         'progression': progression,
+        'accueil_salon': accueil_salon,
     }

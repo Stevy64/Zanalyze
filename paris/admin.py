@@ -1,10 +1,13 @@
 from django.contrib import admin, messages
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import User
 from django.utils import timezone
 
 from paris.dashboard import build_dashboard_stats
 from paris.models import (
     Analyse, Competition, Contexte, Cote, Equipe, Match, MessageChat, Option,
-    Profil, PronosticPremium, PropositionParis, ReglageSite, Vote, VoteOption,
+    Profil, PronosticPremium, PropositionParis, ReglageSite, TraceActivite,
+    VisiteJour, Vote, VoteOption,
 )
 
 # Dashboard activité sur l’index admin.
@@ -31,6 +34,34 @@ admin.site.site_header = 'Zanalyze'
 admin.site.site_title = 'Zanalyze Admin'
 admin.site.index_title = 'Tableau de bord'
 admin.site.enable_nav_sidebar = True
+
+# Titres de listes plus courts (mobile-friendly)
+_changelist_orig = admin.ModelAdmin.changelist_view
+
+
+def _changelist_view_titre(self, request, extra_context=None):
+    extra = dict(extra_context or {})
+    extra.setdefault('title', str(self.opts.verbose_name_plural).capitalize())
+    return _changelist_orig(self, request, extra)
+
+
+admin.ModelAdmin.changelist_view = _changelist_view_titre
+
+
+# Utilisateurs Django — liste plus lisible
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
+
+@admin.register(User)
+class UserAdmin(DjangoUserAdmin):
+    list_display = ('username', 'email', 'is_staff', 'is_active', 'date_joined', 'last_login')
+    list_filter = ('is_staff', 'is_active', 'is_superuser')
+    search_fields = ('username', 'email')
+    ordering = ('-date_joined',)
+    readonly_fields = ('last_login', 'date_joined')
 
 
 def _admin_logout(request, extra_context=None):
@@ -248,10 +279,23 @@ class ProfilAdmin(admin.ModelAdmin):
 
     @admin.action(description='Octroyer Premium (1 mois à partir de maintenant)')
     def octroyer_vip(self, request, queryset):
+        from paris.analytics import enregistrer_trace
+        from paris.salon_welcome import publier_accueil_salon
         n = 0
         for profil in queryset:
+            etait_premium = profil.abonnement_vip_actif
             profil.activer_vip(mois=1)
-            profil.save(update_fields=['categorie', 'vip_depuis', 'vip_expire_le'])
+            profil.save(update_fields=[
+                'categorie', 'vip_depuis', 'vip_expire_le', 'accueil_salon',
+            ])
+            publier_accueil_salon(profil, renouvellement=etait_premium)
+            enregistrer_trace(
+                'vip',
+                f'Premium octroyé · {profil.user.username}',
+                user=request.user,
+                detail='+1 mois',
+                path='/admin/paris/profil/',
+            )
             n += 1
         self.message_user(
             request,
@@ -261,10 +305,22 @@ class ProfilAdmin(admin.ModelAdmin):
 
     @admin.action(description='Prolonger Premium (+1 mois)')
     def prolonger_vip(self, request, queryset):
+        from paris.analytics import enregistrer_trace
+        from paris.salon_welcome import publier_accueil_salon
         n = 0
         for profil in queryset:
             profil.prolonger_vip(mois=1)
-            profil.save(update_fields=['categorie', 'vip_depuis', 'vip_expire_le'])
+            profil.save(update_fields=[
+                'categorie', 'vip_depuis', 'vip_expire_le', 'accueil_salon',
+            ])
+            publier_accueil_salon(profil, renouvellement=True)
+            enregistrer_trace(
+                'vip',
+                f'Premium prolongé · {profil.user.username}',
+                user=request.user,
+                detail='+1 mois',
+                path='/admin/paris/profil/',
+            )
             n += 1
         self.message_user(
             request,
@@ -274,22 +330,37 @@ class ProfilAdmin(admin.ModelAdmin):
 
     @admin.action(description='Retirer le statut Premium → Membre')
     def retirer_vip(self, request, queryset):
+        from paris.analytics import enregistrer_trace
         n = 0
         for profil in queryset:
             profil.retirer_vip()
-            profil.save(update_fields=['categorie', 'vip_expire_le'])
+            profil.save(update_fields=['categorie', 'vip_expire_le', 'accueil_salon'])
+            enregistrer_trace(
+                'vip',
+                f'Premium retiré · {profil.user.username}',
+                user=request.user,
+                path='/admin/paris/profil/',
+            )
             n += 1
         self.message_user(request, f'{n} compte(s) repassé(s) en Membre.', messages.WARNING)
 
 
 @admin.register(ReglageSite)
 class ReglageSiteAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'whatsapp_phone', 'vip_tarif_libelle', 'updated_at')
+    list_display = ('resume', 'whatsapp_phone', 'vip_tarif_libelle', 'maj')
     fields = (
         'whatsapp_phone', 'whatsapp_message', 'whatsapp_url',
         'vip_tarif_libelle', 'updated_at',
     )
     readonly_fields = ('updated_at',)
+
+    @admin.display(description='Réglages')
+    def resume(self, obj):
+        return 'Site Zanalyze'
+
+    @admin.display(description='Mis à jour', ordering='updated_at')
+    def maj(self, obj):
+        return timezone.localtime(obj.updated_at).strftime('%d/%m/%Y %H:%M')
 
     def has_add_permission(self, request):
         return not ReglageSite.objects.exists()
@@ -330,3 +401,46 @@ class MessageChatAdmin(admin.ModelAdmin):
     @admin.display(description='Image', boolean=True)
     def a_image(self, obj):
         return bool(obj.image)
+
+
+@admin.register(VisiteJour)
+class VisiteJourAdmin(admin.ModelAdmin):
+    list_display = ('jour', 'visiteurs', 'pages_vues')
+    ordering = ('-jour',)
+    date_hierarchy = 'jour'
+    readonly_fields = ('jour', 'visiteurs', 'pages_vues', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TraceActivite)
+class TraceActiviteAdmin(admin.ModelAdmin):
+    list_display = ('quand', 'badge_type', 'user', 'label', 'detail_court')
+    list_filter = ('type',)
+    search_fields = ('label', 'detail', 'user__username')
+    readonly_fields = ('created_at', 'type', 'user', 'label', 'detail', 'path')
+    list_per_page = 40
+    date_hierarchy = 'created_at'
+
+    @admin.display(description='Quand', ordering='created_at')
+    def quand(self, obj):
+        return timezone.localtime(obj.created_at).strftime('%d/%m %H:%M')
+
+    @admin.display(description='Type', ordering='type')
+    def badge_type(self, obj):
+        return obj.get_type_display()
+
+    @admin.display(description='Détail')
+    def detail_court(self, obj):
+        d = obj.detail or ''
+        return d if len(d) <= 56 else d[:53] + '…'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

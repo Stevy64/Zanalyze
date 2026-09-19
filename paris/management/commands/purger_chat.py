@@ -1,4 +1,8 @@
-"""Purge des messages du salon de plus de 24 h."""
+"""Purge des messages du salon de plus de 24 h.
+
+Pour la rétention complète (matchs + comptes), préférer :
+  python manage.py purger_retention
+"""
 from django.core.management.base import BaseCommand
 
 from paris.chat import purger_messages_expires

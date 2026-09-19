@@ -379,6 +379,8 @@ class Register(APIView):
         )
         Profil.objects.get_or_create(user=user, defaults={'categorie': 'membre'})
         login(request, user)
+        from paris.analytics import enregistrer_trace
+        enregistrer_trace('inscription', f'Nouveau compte · {user.username}', user=user, path='/api/v1/auth/register/')
         return Response(_payload_auth(user))
 
 
@@ -402,6 +404,8 @@ class Login(APIView):
         if not user.is_active:
             return Response({'detail': 'Compte désactivé.'}, status=400)
         login(request, user)
+        from paris.analytics import enregistrer_trace
+        enregistrer_trace('connexion', f'Connexion · {user.username}', user=user, path='/api/v1/auth/login/')
         return Response(_payload_auth(user))
 
 
@@ -460,10 +464,27 @@ class ChatListCreate(APIView):
             image=ser.validated_data.get('image'),
         )
         marquer_en_ligne(request.user.id)
+        from paris.analytics import enregistrer_trace
+        enregistrer_trace(
+            'chat',
+            f'Message salon · {request.user.username}',
+            user=request.user,
+            detail=(msg.texte or '[média]')[:120],
+            path='/api/v1/salon/',
+        )
         return Response(
             MessageChatSerializer(msg, context={'request': request}).data,
             status=201,
         )
+
+
+class SalonAccueil(APIView):
+    """Consomme le flag d’atterrissage Salon après activation Premium."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from paris.salon_welcome import consommer_accueil_salon
+        return Response({'ok': True, 'consomme': consommer_accueil_salon(request.user)})
 
 
 def _propositions_qs(match):
@@ -559,6 +580,14 @@ class PropositionListCreate(APIView):
         if created:
             from paris.gamification import crediter_proposition
             points_gagnes = crediter_proposition(request.user)
+            from paris.analytics import enregistrer_trace
+            enregistrer_trace(
+                'proposition',
+                f'Proposition · {request.user.username}',
+                user=request.user,
+                detail=prop.libelle[:120],
+                path=f'/api/v1/matchs/{pk}/propositions/',
+            )
         prop = _propositions_qs(match).get(pk=prop.pk)
         return Response(
             {
@@ -785,6 +814,15 @@ class PronosticMatch(APIView):
             user=request.user,
             defaults={'choix': ser.validated_data['choix'], 'points': None, 'gagne': None},
         )
+        if _created:
+            from paris.analytics import enregistrer_trace
+            enregistrer_trace(
+                'pronostic',
+                f'Pronostic · {request.user.username}',
+                user=request.user,
+                detail=f'{match} → {prono.choix}',
+                path=f'/api/v1/matchs/{pk}/pronostic/',
+            )
         from paris.gamification import progression_utilisateur
         return Response({
             'choix': prono.choix,

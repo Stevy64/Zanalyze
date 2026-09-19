@@ -404,11 +404,14 @@ class MessageChatSerializer(serializers.ModelSerializer):
     est_moi = serializers.SerializerMethodField()
     initiale = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    piece_kind = serializers.SerializerMethodField()
+    piece_nom = serializers.SerializerMethodField()
 
     class Meta:
         model = MessageChat
         fields = (
             'id', 'auteur', 'texte', 'image_url',
+            'piece_kind', 'piece_nom', 'systeme',
             'created_at', 'est_moi', 'initiale',
         )
 
@@ -428,6 +431,25 @@ class MessageChatSerializer(serializers.ModelSerializer):
         # URL relative (/media/...) : même origine, fiable en local et sur PA.
         return obj.image.url
 
+    def _piece_name(self, obj) -> str:
+        try:
+            return (obj.image.name or '').rsplit('/', 1)[-1]
+        except Exception:  # noqa: BLE001
+            return ''
+
+    def get_piece_kind(self, obj):
+        if not obj.image:
+            return None
+        nom = self._piece_name(obj).lower()
+        if nom.endswith('.pdf'):
+            return 'pdf'
+        return 'image'
+
+    def get_piece_nom(self, obj):
+        if not obj.image:
+            return None
+        return self._piece_name(obj) or None
+
 
 class MessageCreateSerializer(serializers.Serializer):
     texte = serializers.CharField(required=False, allow_blank=True, max_length=400)
@@ -436,8 +458,10 @@ class MessageCreateSerializer(serializers.Serializer):
     _IMAGE_TYPES = frozenset({
         'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
     })
+    _PDF_TYPES = frozenset({'application/pdf'})
     _IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
-    _IMAGE_MAX = 5 * 1024 * 1024
+    _PDF_EXT = ('.pdf',)
+    _FILE_MAX = 5 * 1024 * 1024
 
     def validate_texte(self, value):
         return ' '.join((value or '').split())
@@ -445,12 +469,16 @@ class MessageCreateSerializer(serializers.Serializer):
     def validate_image(self, value):
         if not value:
             return None
-        if getattr(value, 'size', 0) > self._IMAGE_MAX:
-            raise serializers.ValidationError('Image trop lourde (5 Mo max).')
+        if getattr(value, 'size', 0) > self._FILE_MAX:
+            raise serializers.ValidationError('Fichier trop lourd (5 Mo max).')
         name = (getattr(value, 'name', '') or '').lower()
-        if not name.endswith(self._IMAGE_EXT):
-            raise serializers.ValidationError('Formats : JPG, PNG, WEBP, GIF.')
         ctype = (getattr(value, 'content_type', '') or '').lower()
+        if name.endswith(self._PDF_EXT) or ctype in self._PDF_TYPES:
+            if ctype and ctype not in self._PDF_TYPES:
+                raise serializers.ValidationError('PDF invalide.')
+            return value
+        if not name.endswith(self._IMAGE_EXT):
+            raise serializers.ValidationError('Formats : JPG, PNG, WEBP, GIF, PDF.')
         if ctype and ctype not in self._IMAGE_TYPES:
             raise serializers.ValidationError('Fichier image invalide.')
         return value

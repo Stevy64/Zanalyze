@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=92">
+  <link rel="stylesheet" href="/static/css/app.css?v=99">
 </head>
 <body
   x-data="zanalyz()"
@@ -717,7 +717,7 @@
             <span class="salon-online" x-show="peutVip" x-cloak
               :title="libSalonEnLigne()"
               x-text="libSalonEnLigne()"></span>
-            <button type="button" class="btn salon-exit" @click="sortirSalon()" aria-label="Sortir du salon">
+            <button type="button" class="btn salon-exit" @click="confirmerSortirSalon()" aria-label="Sortir du salon">
               <span x-html="icon('log-out','icon icon-sm')"></span>
               <span>Sortir</span>
             </button>
@@ -739,42 +739,64 @@
 
         <template x-if="peutVip">
           <div class="salon-shell">
-            <div class="salon-tabs no-print">
-              <button type="button" class="puce" :class="salonOnglet === 'chat' ? 'on' : ''"
-                @click="salonOnglet = 'chat'">Discussion</button>
-              <button type="button" class="puce" :class="salonOnglet === 'classement' ? 'on' : ''"
-                @click="salonOnglet = 'classement'; chargerClassement()">Classement</button>
+            <div class="salon-seg no-print" role="tablist" aria-label="Salon">
+              <button type="button" role="tab" class="salon-seg-btn"
+                :class="salonOnglet === 'chat' ? 'on' : ''"
+                :aria-selected="salonOnglet === 'chat'"
+                @click="salonOnglet = 'chat'">
+                <span x-html="icon('message','icon icon-sm')"></span>
+                Discussion
+              </button>
+              <button type="button" role="tab" class="salon-seg-btn"
+                :class="salonOnglet === 'classement' ? 'on' : ''"
+                :aria-selected="salonOnglet === 'classement'"
+                @click="salonOnglet = 'classement'; chargerClassement()">
+                <span x-html="icon('trophy','icon icon-sm')"></span>
+                Classement
+              </button>
             </div>
             <template x-if="salonOnglet === 'classement'">
               <div class="classement-wrap">
-                <p class="hint">Classement Premium uniquement. Pronostique le 1X2 avant le coup d’envoi (+12 si OK, +2 sinon). −1 pt / 24 h.</p>
-                <div class="premium-score" x-show="classementMoi" x-cloak>
-                  <span class="bilan-chip ok" x-text="(classementMoi && classementMoi.points) + ' pts'"></span>
-                  <span class="bilan-chip wait" x-text="classementMoi && (classementMoi.grade_libelle || libGrade(classementMoi.grade))"></span>
-                </div>
-                <p class="hint" x-show="classementMoi && classementMoi.hint" x-cloak x-text="classementMoi.hint"></p>
-                <div class="obj-mini" x-show="classementMoi && classementMoi.objectif" x-cloak>
-                  <div class="obj-bar"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
-                </div>
                 <div class="loader-wrap" x-show="classementChargement" x-cloak>
-                  <div class="spinner" role="status"></div>
+                  <div class="spinner" role="status" aria-label="Chargement"></div>
                 </div>
-                <ol class="classement-liste" x-show="!classementChargement">
+                <ol class="classement-liste" x-show="!classementChargement" x-cloak>
                   <template x-for="row in classement" :key="row.username">
-                    <li>
-                      <span class="cl-rang" x-text="'#' + row.rang"></span>
-                      <strong x-text="row.username"></strong>
-                      <span class="cl-grade" x-text="row.grade_libelle"></span>
-                      <span class="cl-pts" x-text="row.points + ' pts'"></span>
+                    <li :class="[
+                      'cl-row',
+                      classeBandeClassement(row.rang),
+                      row.username === username ? 'is-me' : '',
+                    ]">
+                      <span class="cl-rang" :aria-label="'Rang ' + row.rang">
+                        <span class="cl-rang-ico" x-show="row.rang <= 3" x-cloak
+                          x-html="iconRang(row.rang)"></span>
+                        <span class="cl-rang-num" x-text="'#' + row.rang"></span>
+                      </span>
+                      <span class="cl-avatar" aria-hidden="true"
+                        x-text="(row.username || '?').charAt(0).toUpperCase()"></span>
+                      <div class="cl-identity">
+                        <strong class="cl-name" x-text="row.username"></strong>
+                        <span class="cl-grade">
+                          <span x-html="iconGrade(row.grade)"></span>
+                          <span x-text="row.grade_libelle || libGrade(row.grade)"></span>
+                        </span>
+                      </div>
+                      <span class="cl-pts" :title="row.points + ' points'">
+                        <span x-html="icon('activity','icon icon-sm')"></span>
+                        <b x-text="row.points"></b>
+                        <small>pts</small>
+                      </span>
                     </li>
                   </template>
                 </ol>
-                <p class="vide vide-sm" x-show="!classementChargement && !classement.length">
+                <p class="vide vide-sm" x-show="!classementChargement && !classement.length" x-cloak>
+                  <span class="vide-ico" x-html="icon('trophy','icon icon-lg')"></span>
                   Aucun point pour l’instant — lance ton premier pronostic sur une fiche match.
                 </p>
               </div>
             </template>
             <template x-if="salonOnglet === 'chat'">
+            <div class="salon-chat-pane">
             <div class="salon-feed" x-ref="salonFeed" @scroll.passive="onSalonScroll()">
               <div class="salon-empty" x-show="!chatChargement && !chatMessages.length" x-cloak>
                 <p>Encore calme ici… Lance le premier message, allez.</p>
@@ -785,21 +807,38 @@
               <template x-for="(msg, idx) in chatMessages" :key="'m-' + msg.id">
                 <div class="chat-row"
                   :class="{
-                    'is-me': msg.est_moi,
-                    'show-meta': chatShowMeta(msg, idx),
+                    'is-me': msg.est_moi && !msg.systeme,
+                    'is-system': !!msg.systeme,
+                    'show-meta': !msg.systeme && chatShowMeta(msg, idx),
                   }">
+                  <div class="chat-system" x-show="msg.systeme" x-cloak>
+                    <span class="chat-system-ico" x-html="icon('crown','icon icon-sm')"></span>
+                    <p x-text="msg.texte"></p>
+                  </div>
                   <div class="chat-avatar" aria-hidden="true"
-                    x-show="!msg.est_moi && chatShowMeta(msg, idx)"
+                    x-show="!msg.systeme && !msg.est_moi && chatShowMeta(msg, idx)"
                     x-text="msg.initiale || '?'"></div>
-                  <div class="chat-bubble-wrap">
+                  <div class="chat-bubble-wrap" x-show="!msg.systeme">
                     <p class="chat-author" x-show="!msg.est_moi && chatShowMeta(msg, idx)"
                       x-text="msg.auteur"></p>
-                    <div class="chat-bubble" :class="{'has-image': !!msg.image_url}">
-                      <button type="button" x-show="msg.image_url" x-cloak class="chat-img-btn"
+                    <div class="chat-bubble"
+                      :class="{
+                        'has-image': msg.piece_kind === 'image',
+                        'has-file': msg.piece_kind === 'pdf',
+                      }">
+                      <button type="button" x-show="msg.piece_kind === 'image' && msg.image_url" x-cloak
+                        class="chat-img-btn"
                         @click="ouvrirChatImage(msg.image_url)"
                         :aria-label="'Voir l’image'">
                         <img class="chat-img" :src="msg.image_url" alt="Image envoyée" loading="lazy">
                       </button>
+                      <a x-show="msg.piece_kind === 'pdf' && msg.image_url" x-cloak
+                        class="chat-file"
+                        :href="msg.image_url" target="_blank" rel="noopener"
+                        :download="msg.piece_nom || 'document.pdf'">
+                        <span x-html="icon('download','icon icon-sm')"></span>
+                        <span x-text="msg.piece_nom || 'Document PDF'"></span>
+                      </a>
                       <p x-show="msg.texte" x-text="msg.texte"></p>
                     </div>
                     <time class="chat-time" x-text="fmtChatHeure(msg.created_at)"></time>
@@ -808,25 +847,50 @@
               </template>
             </div>
 
+            <div class="salon-stickers" x-show="chatStickersOpen" x-cloak>
+              <template x-for="s in chatStickers" :key="'st-' + s">
+                <button type="button" class="salon-sticker" @click="insererSticker(s)"
+                  :aria-label="'Sticker ' + s" x-text="s"></button>
+              </template>
+            </div>
             <div class="salon-preview" x-show="chatImagePreview" x-cloak>
-              <img :src="chatImagePreview" alt="Aperçu">
-              <button type="button" class="salon-preview-x" @click="clearChatImage()" aria-label="Retirer l’image">
+              <template x-if="chatPieceKind === 'pdf'">
+                <div class="salon-preview-file">
+                  <span x-html="icon('download','icon icon-sm')"></span>
+                  <span x-text="chatPieceNom || 'PDF'"></span>
+                </div>
+              </template>
+              <template x-if="chatPieceKind !== 'pdf'">
+                <img :src="chatImagePreview" alt="Aperçu">
+              </template>
+              <button type="button" class="salon-preview-x" @click="clearChatImage()" aria-label="Retirer la pièce">
                 <span x-html="icon('x','icon icon-sm')"></span>
               </button>
             </div>
             <form class="salon-compose" @submit.prevent="envoyerChat()">
-              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+              <input type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf"
                 class="salon-file" x-ref="salonImageInput" @change="onChatImagePick($event)">
-              <button type="button" class="btn salon-attach"
-                :disabled="chatBusy"
-                @click="$refs.salonImageInput && $refs.salonImageInput.click()"
-                aria-label="Joindre une image">
-                <span x-html="icon('image','icon icon-sm')"></span>
-              </button>
+              <div class="salon-compose-tools">
+                <button type="button" class="btn salon-attach"
+                  :class="chatStickersOpen ? 'on' : ''"
+                  :disabled="chatBusy"
+                  @click="chatStickersOpen = !chatStickersOpen"
+                  aria-label="Stickers">
+                  <span aria-hidden="true">😊</span>
+                </button>
+                <button type="button" class="btn salon-attach"
+                  :disabled="chatBusy"
+                  @click="$refs.salonImageInput && $refs.salonImageInput.click()"
+                  aria-label="Joindre image ou PDF">
+                  <span x-html="icon('image','icon icon-sm')"></span>
+                </button>
+              </div>
               <input type="text" maxlength="400" autocomplete="off"
                 placeholder="Écrire un message…"
                 x-model="chatDraft"
                 :disabled="chatBusy"
+                @focus="chatStickersOpen = false"
                 @keydown.enter.prevent="envoyerChat()">
               <button type="submit" class="btn salon-send"
                 :disabled="chatBusy || (!(chatDraft || '').trim() && !chatImage)"
@@ -835,6 +899,7 @@
               </button>
             </form>
             <p class="salon-hint" x-show="chatErr" x-cloak x-text="chatErr"></p>
+            </div>
             </template>
           </div>
         </template>
@@ -956,7 +1021,7 @@
                 <span x-html="icon('crown','icon icon-sm')"></span>
                 Demander Premium
               </button>
-              <button type="button" class="btn btn-ghost" @click="authLogout()">Se déconnecter</button>
+              <button type="button" class="btn btn-danger-ghost" @click="confirmerDeconnexion()">Se déconnecter</button>
             </div>
           </template>
           <template x-if="!authentifie">
@@ -1087,7 +1152,7 @@
     </template>
   </main>
 
-  <div class="sheet-backdrop" :class="(sheetApercu || sheetClub || sheetAuth || sheetCompos || sheetInstall || sheetJustif || sheetVip || sheetCgu || chatLightboxUrl) ? 'open' : ''"
+  <div class="sheet-backdrop" :class="(sheetApercu || sheetClub || sheetAuth || sheetCompos || sheetInstall || sheetJustif || sheetVip || sheetVipExpire || sheetCgu || sheetClassement || dialog || chatLightboxUrl) ? 'open' : ''"
     @click="fermerSheets()" @keydown.escape.window="fermerSheets()"></div>
 
   <div class="chat-lightbox" x-show="chatLightboxUrl" x-cloak
@@ -1097,6 +1162,29 @@
       <span x-html="icon('x','icon icon-sm')"></span>
     </button>
     <img class="chat-lightbox-img" :src="chatLightboxUrl" alt="Image du salon" @click.stop>
+  </div>
+
+  <div class="app-dialog" :class="dialog ? 'open' : ''"
+    role="dialog" aria-modal="true" :aria-label="dialog ? dialog.titre : 'Dialogue'"
+    :aria-hidden="!dialog"
+    @click.self="repondreDialog(false)">
+    <div class="app-dialog-card" x-show="dialog" x-cloak
+      :class="dialog ? ('tone-' + (dialog.tone || 'neutral')) : ''">
+      <div class="app-dialog-ico" aria-hidden="true">
+        <span x-html="dialog ? icon(dialog.icon || 'info', 'icon icon-lg') : ''"></span>
+      </div>
+      <h2 class="app-dialog-title" x-text="dialog ? dialog.titre : ''"></h2>
+      <p class="app-dialog-msg" x-text="dialog ? dialog.message : ''"></p>
+      <div class="app-dialog-actions">
+        <button type="button" class="btn btn-ghost"
+          x-show="!dialog || dialog.showCancel !== false"
+          @click="repondreDialog(false)"
+          x-text="dialog ? dialog.cancelLabel : 'Annuler'"></button>
+        <button type="button" class="btn app-dialog-confirm"
+          @click="repondreDialog(true)"
+          x-text="dialog ? dialog.confirmLabel : 'Confirmer'"></button>
+      </div>
+    </div>
   </div>
 
   <div class="bottom-sheet sheet-install" :class="sheetInstall ? 'open' : ''"
@@ -1657,56 +1745,46 @@
       @touchmove.passive="sheetDragMove($event)"
       @touchend="sheetDragEnd()"></div>
     <div class="sheet-body">
-      <h2>
+      <h2 class="cl-sheet-title">
+        <span x-html="icon('trophy','icon icon-sm')"></span>
         Classement
         <span class="cl-cat-pill"
           x-text="(classementMoi && classementMoi.libelle_categorie) || (categorie === 'premium' ? 'Premium' : 'Membres')"></span>
       </h2>
-      <div class="challenge-stats" x-show="classementMoi && classementMoi.stats" x-cloak>
-        <div class="challenge-stat">
-          <span class="challenge-stat-ico" x-html="icon('check','icon icon-sm')"></span>
-          <small>Gagnés</small>
-          <b x-text="(classementMoi.stats.pronos_gagnes || 0) + '/' + (classementMoi.stats.pronos_joues || 0)"></b>
-        </div>
-        <div class="challenge-stat">
-          <span class="challenge-stat-ico" x-html="icon('percent','icon icon-sm')"></span>
-          <small>Réussite</small>
-          <b x-text="classementMoi.stats.taux_reussite != null ? (classementMoi.stats.taux_reussite + ' %') : '—'"></b>
-        </div>
-        <div class="challenge-stat">
-          <span class="challenge-stat-ico" x-html="icon('flame','icon icon-sm')"></span>
-          <small>Série</small>
-          <b x-text="classementMoi.stats.serie_actuelle || 0"></b>
-        </div>
-        <div class="challenge-stat">
-          <span class="challenge-stat-ico" x-html="icon('trophy','icon icon-sm')"></span>
-          <small>Rang</small>
-          <b x-text="classementMoi.rang ? ('#' + classementMoi.rang) : '—'"></b>
-        </div>
-      </div>
-      <div class="obj-block challenge-progress" x-show="classementMoi && classementMoi.objectif" x-cloak>
-        <div class="obj-labels">
-          <span x-text="classementMoi.objectif.libelle_actuel"></span>
-          <span x-text="classementMoi.objectif.atteint_max ? 'MAX' : ('→ ' + classementMoi.objectif.prochain_libelle)"></span>
-        </div>
-        <div class="obj-bar obj-bar-lg"><span :style="'width:' + (classementMoi.objectif.progress_pct || 0) + '%'"></span></div>
-        <p class="challenge-reste" x-show="classementMoi.objectif && !classementMoi.objectif.atteint_max" x-cloak
-          x-text="classementMoi.objectif.reste_libelle"></p>
-      </div>
       <div class="loader-wrap" x-show="classementChargement" x-cloak>
         <div class="spinner" role="status"></div>
       </div>
-      <ol class="classement-liste" x-show="!classementChargement">
+      <ol class="classement-liste" x-show="!classementChargement" x-cloak>
         <template x-for="row in classement" :key="'cl-' + row.username">
-          <li :class="row.username === username ? 'is-me' : ''">
-            <span class="cl-rang" x-text="'#' + row.rang"></span>
-            <strong x-text="row.username"></strong>
-            <span class="cl-grade" x-text="row.grade_libelle"></span>
-            <span class="cl-pts" x-text="row.points + ' pts'"></span>
+          <li :class="[
+            'cl-row',
+            classeBandeClassement(row.rang),
+            row.username === username ? 'is-me' : '',
+          ]">
+            <span class="cl-rang" :aria-label="'Rang ' + row.rang">
+              <span class="cl-rang-ico" x-show="row.rang <= 3" x-cloak
+                x-html="iconRang(row.rang)"></span>
+              <span class="cl-rang-num" x-text="'#' + row.rang"></span>
+            </span>
+            <span class="cl-avatar" aria-hidden="true"
+              x-text="(row.username || '?').charAt(0).toUpperCase()"></span>
+            <div class="cl-identity">
+              <strong class="cl-name" x-text="row.username"></strong>
+              <span class="cl-grade">
+                <span x-html="iconGrade(row.grade)"></span>
+                <span x-text="row.grade_libelle || libGrade(row.grade)"></span>
+              </span>
+            </div>
+            <span class="cl-pts" :title="row.points + ' points'">
+              <span x-html="icon('activity','icon icon-sm')"></span>
+              <b x-text="row.points"></b>
+              <small>pts</small>
+            </span>
           </li>
         </template>
       </ol>
-      <p class="vide vide-sm" x-show="!classementChargement && !classement.length">
+      <p class="vide vide-sm" x-show="!classementChargement && !classement.length" x-cloak>
+        <span class="vide-ico" x-html="icon('trophy','icon icon-lg')"></span>
         Personne n’a encore de points — sois le premier à pronostiquer !
       </p>
       <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
@@ -1750,6 +1828,37 @@
         Se connecter pour demander Premium
       </button>
       <button type="button" class="btn btn-ghost btn-block" @click="fermerVipGate()">Plus tard</button>
+    </div>
+  </div>
+
+  <div class="app-dialog app-dialog-vip-expire" :class="sheetVipExpire ? 'open' : ''"
+    role="dialog" aria-modal="true" aria-label="Fin d’abonnement Premium"
+    :aria-hidden="!sheetVipExpire"
+    @click.self="fermerAlertePremium(true)">
+    <div class="app-dialog-card tone-warn" x-show="sheetVipExpire" x-cloak>
+      <div class="app-dialog-ico" aria-hidden="true">
+        <span x-html="icon('clock','icon icon-lg')"></span>
+      </div>
+      <h2 class="app-dialog-title">Premium bientôt terminé</h2>
+      <p class="app-dialog-lead"
+        x-text="(joursRestantsPremium() === 1)
+          ? 'Plus qu’1 jour pour renouveler'
+          : ('Plus que ' + joursRestantsPremium() + ' jours pour renouveler')"></p>
+      <p class="app-dialog-msg">
+        Ton abonnement mensuel expire bientôt. Sans prolongation, tu perdras l’accès
+        au Salon, aux Nos Zanalyze et aux justifications complètes.
+      </p>
+      <div class="app-dialog-actions app-dialog-actions-stack">
+        <a class="btn btn-block btn-whatsapp"
+          x-show="whatsappVipUrl" x-cloak
+          :href="whatsappVipUrl" target="_blank" rel="noopener"
+          @click="fermerAlertePremium(true)">
+          Renouveler sur WhatsApp
+        </a>
+        <button type="button" class="btn btn-ghost btn-block" @click="fermerAlertePremium(true)">
+          Me le rappeler plus tard
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1850,7 +1959,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=92"></script>
+  <script defer src="/static/js/app.js?v=99"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

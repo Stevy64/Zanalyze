@@ -276,6 +276,10 @@ class Profil(models.Model):
         help_text='Dernière application de la décroissance (−1 pt / 24 h).',
     )
     note_admin = models.CharField(max_length=200, blank=True)
+    accueil_salon = models.BooleanField(
+        default=False,
+        help_text='Si vrai, le prochain chargement app ouvre le Salon avec un message de bienvenue.',
+    )
 
     class Meta:
         verbose_name = 'Profil utilisateur'
@@ -304,6 +308,7 @@ class Profil(models.Model):
         self.categorie = 'premium'
         self.vip_depuis = debut
         self.vip_expire_le = fin
+        self.accueil_salon = True
 
     def prolonger_vip(self, mois: int = 1) -> None:
         """Ajoute N mois à la fin d’abonnement (ou depuis maintenant si expiré)."""
@@ -313,10 +318,12 @@ class Profil(models.Model):
         if not self.vip_depuis:
             self.vip_depuis = maintenant
         self.vip_expire_le = nouvelle_expiration(self.vip_expire_le, mois)
+        self.accueil_salon = True
 
     def retirer_vip(self) -> None:
         self.categorie = 'membre'
         self.vip_expire_le = timezone.now()
+        self.accueil_salon = False
 
 
 class PronosticPremium(models.Model):
@@ -415,6 +422,10 @@ class MessageChat(models.Model):
     )
     texte = models.CharField(max_length=400, blank=True, default='')
     image = models.FileField(upload_to='salon/%Y/%m/%d/', blank=True, null=True)
+    systeme = models.BooleanField(
+        default=False, db_index=True,
+        help_text='Annonce système (bienvenue Premium, etc.).',
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -425,3 +436,59 @@ class MessageChat(models.Model):
     def __str__(self):
         apercu = (self.texte or '').strip() or ('[image]' if self.image else '')
         return f'{self.auteur_id}:{apercu[:40]}'
+
+
+class VisiteJour(models.Model):
+    """Agrégats quotidiens visiteurs / pages (rempli par le middleware analytics)."""
+    jour = models.DateField(unique=True, db_index=True)
+    visiteurs = models.PositiveIntegerField(default=0)
+    pages_vues = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-jour']
+        verbose_name = 'Visite du jour'
+        verbose_name_plural = 'Visites quotidiennes'
+
+    def __str__(self):
+        return f'{self.jour} · {self.visiteurs} visiteurs'
+
+
+class TraceActivite(models.Model):
+    """Fil d’activité plateforme pour le suivi admin."""
+    TYPES = [
+        ('visite', 'Visite'),
+        ('inscription', 'Inscription'),
+        ('connexion', 'Connexion'),
+        ('pronostic', 'Pronostic'),
+        ('proposition', 'Proposition'),
+        ('vote', 'Vote'),
+        ('chat', 'Salon'),
+        ('vip', 'Premium'),
+        ('admin', 'Admin'),
+        ('autre', 'Autre'),
+    ]
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    type = models.CharField(max_length=20, choices=TYPES, default='autre', db_index=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='traces_activite',
+    )
+    label = models.CharField(max_length=220)
+    detail = models.CharField(max_length=400, blank=True, default='')
+    path = models.CharField(max_length=200, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Trace d’activité'
+        verbose_name_plural = 'Traces d’activité'
+        indexes = [
+            models.Index(fields=['-created_at', 'type'], name='trace_at_type'),
+        ]
+
+    def __str__(self):
+        who = self.user.username if self.user_id else 'anonyme'
+        return f'{self.created_at:%d/%m %H:%M} · {who} · {self.label}'
