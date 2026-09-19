@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 from paris.models import Analyse, Competition, Contexte, Cote, Equipe, Match, Option
 from paris.reglement import regler_match
+from paris.identite import cle_equipe, meme_club
 
 SNAPSHOT_VERSION = 1
 
@@ -180,10 +181,30 @@ def _liberer_equipe_uniques(
             other.save(update_fields=['thesportsdb_id'])
 
 
+def _trouver_equipe_connue(nom: str, slug: str) -> Equipe | None:
+    """Retrouve une équipe déjà en base même si le slug a changé (V3 → V4)."""
+    eq = Equipe.objects.filter(slug=slug).first()
+    if eq:
+        return eq
+    eq = Equipe.objects.filter(nom=nom).first()
+    if eq:
+        return eq
+    # Anciens slugs SofaScore : deportivo-alaves ↔ alaves, athletic ↔ athletic-bilbao.
+    for cand in Equipe.objects.all().only('id', 'nom', 'slug', 'nom_court'):
+        if meme_club(nom, cand.nom) or meme_club(nom, cand.slug.replace('-', ' ')):
+            return cand
+        if slug and (
+            meme_club(slug.replace('-', ' '), cand.nom)
+            or cle_equipe(slug.replace('-', ' ')) == cle_equipe(cand.slug.replace('-', ' '))
+        ):
+            return cand
+    return None
+
+
 def _upsert_equipe(e: dict[str, Any]) -> Equipe:
     """
-    Upsert robuste : sid ESPN/SofaScore, puis slug, puis nom.
-    Évite IntegrityError quand une ancienne équipe (autre sid) porte déjà le nom.
+    Upsert robuste : sid, slug, nom, puis identité canonique (meme_club).
+    Évite les doublons alaves / deportivo-alaves après migration V4.
     """
     sid = e.get('sofascore_id')
     nom = e['nom']
@@ -202,9 +223,7 @@ def _upsert_equipe(e: dict[str, Any]) -> Equipe:
     if sid:
         eq = Equipe.objects.filter(sofascore_id=sid).first()
     if eq is None:
-        eq = Equipe.objects.filter(slug=slug).first()
-    if eq is None:
-        eq = Equipe.objects.filter(nom=nom).first()
+        eq = _trouver_equipe_connue(nom, slug)
 
     if eq is None:
         _liberer_equipe_uniques(
@@ -365,6 +384,13 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
         if match.statut == 'termine':
             regler_match(match)
 
+    from paris.nettoyage import nettoyer_doublons
+    stats_nettoyage = nettoyer_doublons()
+    stats['doublons_equipes'] = stats_nettoyage.get('equipes_fusionnees', 0)
+    stats['doublons_matchs'] = (
+        stats_nettoyage.get('matchs_doublons', 0)
+        + stats_nettoyage.get('matchs_absurdes', 0)
+    )
     return stats
 
 
@@ -409,6 +435,18 @@ def _upsert_match(
         exterieur=exterieur,
         coup_denvoi=coup,
     ).first()
+
+    # Même affiche sous d'anciens slugs (alaves / deportivo-alaves, etc.).
+    if by_key is None:
+        for cand in Match.objects.filter(
+            competition=competition, coup_denvoi=coup,
+        ).select_related('domicile', 'exterieur'):
+            if (
+                meme_club(domicile.nom, cand.domicile.nom)
+                and meme_club(exterieur.nom, cand.exterieur.nom)
+            ):
+                by_key = cand
+                break
 
     if by_sid and by_key and by_sid.pk != by_key.pk:
         # Garder l'affiche correcte ; le doublon sid (souvent corrompu) part.

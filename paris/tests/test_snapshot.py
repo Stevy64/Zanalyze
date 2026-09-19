@@ -211,3 +211,53 @@ class SnapshotRoundtripTests(TestCase):
         self.assertEqual(m.exterieur_id, self.ext.pk)
         self.assertFalse(Match.objects.filter(pk=corrompu.pk).exists())
         self.assertIsNone(Equipe.objects.get(slug='home-fc').sofascore_id)
+
+    def test_import_fusionne_slugs_synonymes_alaves(self):
+        """deportivo-alaves (V3) + alaves (V4) → une seule équipe, un seul match."""
+        Match.objects.all().delete()
+        Equipe.objects.all().delete()
+        ancien = Equipe.objects.create(
+            nom='Deportivo Alavés', nom_court='Alavés',
+            slug='deportivo-alaves', sofascore_id=None,
+        )
+        bilbao = Equipe.objects.create(
+            nom='Athletic Club', nom_court='Athletic',
+            slug='athletic-bilbao', sofascore_id=None,
+        )
+        coup = datetime(2026, 9, 19, 14, 15, tzinfo=dt_timezone.utc)
+        Match.objects.create(
+            competition=self.comp, domicile=bilbao, exterieur=ancien,
+            coup_denvoi=coup, statut='a_venir', sofascore_id=111000,
+        )
+        payload = {
+            'version': 1,
+            'competitions': [{
+                'code': 'PL', 'nom': 'Premier League', 'pays': 'Angleterre',
+                'ordre': 20, 'actif': True, 'sofascore_id': None,
+            }],
+            'equipes': [
+                {'nom': 'Athletic Club', 'nom_court': 'Athletic',
+                 'slug': 'athletic-bilbao', 'sofascore_id': None,
+                 'logo_externe': '', 'fiche_club': {}},
+                {'nom': 'Alavés', 'nom_court': 'Alavés', 'slug': 'alaves',
+                 'sofascore_id': None, 'logo_externe': '', 'fiche_club': {}},
+            ],
+            'matchs': [{
+                'sofascore_id': 401882866,
+                'competition_code': 'PL',
+                'domicile_slug': 'athletic-bilbao',
+                'exterieur_slug': 'alaves',
+                'coup_denvoi': '2026-09-19T14:15:00+00:00',
+                'statut': 'a_venir',
+                'cotes': [],
+                'analyse': None,
+            }],
+        }
+        importer_snapshot(payload)
+        self.assertEqual(Match.objects.count(), 1)
+        self.assertEqual(Equipe.objects.filter(slug__contains='alaves').count(), 1)
+        m = Match.objects.get()
+        self.assertEqual(m.sofascore_id, 401882866)
+        self.assertEqual(m.exterieur.slug, 'alaves')
+        self.assertFalse(Equipe.objects.filter(pk=ancien.pk, slug='deportivo-alaves').exists())
+
