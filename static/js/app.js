@@ -2187,7 +2187,7 @@ function zanalyz() {
     async ouvrirCompos() {
       if (!this.authentifie) {
         this.ouvrirAuth(
-          'Connecte-toi pour ouvrir Nos Zanalyze.',
+          'Connecte-toi pour ouvrir Nos Zanalyzes.',
           () => this.ouvrirCompos(),
         );
         return;
@@ -2355,7 +2355,7 @@ function zanalyz() {
       this.partageBusy = true;
       const titre = this.jourPasseCompos
         ? ('Zanalyze — Bilans · ' + fmtJour(this.jourDate + 'T12:00:00'))
-        : ('Zanalyze — Nos Zanalyze · ' + fmtJour(this.jourDate + 'T12:00:00'));
+        : ('Zanalyze — Nos Zanalyzes · ' + fmtJour(this.jourDate + 'T12:00:00'));
       const text = [
         titre,
         'Voici notre sélection du jour, tirée de notre moteur de prédiction Zanalyze',
@@ -2364,7 +2364,7 @@ function zanalyz() {
       ].join('\n');
       try {
         if (navigator.share) {
-          await navigator.share({ title: 'Nos Zanalyze', text });
+          await navigator.share({ title: 'Nos Zanalyzes', text });
           this.partageMsg = 'Partage envoyé.';
           return;
         }

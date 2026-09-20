@@ -74,7 +74,7 @@
         <div class="hero-actions">
           <button type="button" class="btn btn-hero btn-hero-glass" @click="ouvrirCompos()">
             <span x-html="icon('layers','icon icon-sm')"></span>
-            Nos Zanalyze
+            Nos Zanalyzes
           </button>
         </div>
       </div>
@@ -931,10 +931,10 @@
               </p>
               <p class="hint" x-show="categorie === 'membre'" x-cloak>
                 Accès Membre : matchs, likes, propositions, challenge points.
-                Nos Zanalyze + Salon = badge Premium.
+                Nos Zanalyzes + Salon = badge Premium.
               </p>
               <p class="hint" x-show="categorie === 'premium'" x-cloak>
-                Statut Premium : Nos Zanalyze, justifications, Salon Premium + challenge.
+                Statut Premium : Nos Zanalyzes, justifications, Salon Premium + challenge.
               </p>
               <div class="challenge-card" x-show="authentifie" x-cloak>
                 <div class="challenge-top">
@@ -1219,7 +1219,7 @@
 
   <div class="bottom-sheet sheet-compos"
     :class="(sheetCompos ? 'open ' : '') + (composExpanded ? 'expanded' : '')"
-    role="dialog" aria-modal="true" aria-label="Nos Zanalyze"
+    role="dialog" aria-modal="true" aria-label="Nos Zanalyzes"
     :aria-hidden="!sheetCompos">
     <div class="sheet-handle-drag"
       @click="composExpanded = !composExpanded"
@@ -1262,7 +1262,7 @@
       <div id="compos-print" class="compos-print" x-show="!chargementJour && predictionsJour.length">
         <header class="compos-head">
           <div>
-            <h2 x-text="jourPasseCompos ? 'Bilans Zanalyze' : 'Nos Zanalyze'"></h2>
+            <h2 x-text="jourPasseCompos ? 'Bilans Zanalyze' : 'Nos Zanalyzes'"></h2>
             <p class="hint" x-show="!jourPasseCompos">
               Voici notre sélection du jour, tirée de notre moteur de prédiction Zanalyze
             </p>
@@ -1820,7 +1820,7 @@
         <p class="vip-tarif" x-text="vipTarifLibelle || 'Premium Zanalyze'"></p>
       </div>
       <ul class="vip-perks">
-        <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyze (sélection + bilans)</li>
+        <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyzes (sélection + bilans)</li>
         <li><span x-html="icon('crosshair','icon icon-sm')"></span> Justifications complètes des tips</li>
         <li><span x-html="icon('message','icon icon-sm')"></span> Accès au Salon Premium</li>
         <li><span x-html="icon('badge-check','icon icon-sm')"></span> Statut couronne visible sur ton compte</li>
@@ -1861,7 +1861,7 @@
           : ('Plus que ' + joursRestantsPremium() + ' jours pour renouveler')"></p>
       <p class="app-dialog-msg">
         Ton abonnement mensuel expire bientôt. Sans prolongation, tu perdras l’accès
-        au Salon, aux Nos Zanalyze et aux justifications complètes.
+        au Salon, aux Nos Zanalyzes et aux justifications complètes.
       </p>
       <div class="app-dialog-actions app-dialog-actions-stack">
         <a class="btn btn-block btn-whatsapp"
@@ -1974,7 +1974,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=105"></script>
+  <script defer src="/static/js/app.js?v=107"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>
