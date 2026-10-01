@@ -943,7 +943,15 @@ class ClassementPremium(APIView):
 
 @ensure_csrf_cookie
 def app(request, *args, **kwargs):
+    from django.conf import settings as dj_settings
+
+    android_url = str(getattr(dj_settings, 'ANDROID_APP_URL', '') or '').strip() or '#'
+    ios_url = str(getattr(dj_settings, 'IOS_APP_URL', '') or '').strip() or '#'
     return render(request, 'app.html', {
         'version_moteur': version_moteur_active(),
         'annee': datetime.now().year,
+        'android_app_url': android_url,
+        'ios_app_url': ios_url,
+        'android_app_ready': android_url.startswith(('http://', 'https://')),
+        'ios_app_ready': ios_url.startswith(('http://', 'https://')),
     })

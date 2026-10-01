@@ -186,6 +186,8 @@ const ICON_PATHS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/>',
   share: '<path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v14"/>',
   download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  android: '<path d="M5 10v8a2 2 0 0 0 2 2h1v-6h8v6h1a2 2 0 0 0 2-2v-8"/><path d="M9 21v-4M15 21v-4"/><path d="M7 10V8a5 5 0 0 1 10 0v2"/><path d="m8 4 1.2 2M16 4l-1.2 2"/><circle cx="9.5" cy="7.5" r=".7"/><circle cx="14.5" cy="7.5" r=".7"/>',
+  apple: '<path d="M16.5 4.5c-.8.5-1.7.8-2.6.8-.1-1 .4-2 1-2.7.7-.8 1.9-1.4 2.9-1.4.1 1-.3 2.1-1.3 3.3z"/><path d="M19.3 15.2c-.5 1.1-.7 1.5-1.4 2.5-.9 1.2-2.1 2.7-3.7 2.7-1.1 0-1.8-.7-3-.7s-1.9.7-3 .7c-1.5 0-2.7-1.4-3.7-2.7C2.7 15.4 2 12.2 3.5 10c.9-1.3 2.4-2.1 3.8-2.1 1.2 0 2.2.8 3 .8.8 0 1.9-.9 3.3-.8 1.4.1 2.6.8 3.3 1.9-2.9 1.6-2.4 5.7.4 6.4z"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   'eye-off': '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.1A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a17.5 17.5 0 0 1-3.2 4.1"/><path d="M6.1 6.1C3.7 7.8 2 12 2 12a17.7 17.7 0 0 0 6.2 5.6"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
@@ -492,6 +494,8 @@ function zanalyz() {
     },
     moteur: document.body.dataset.moteur,
     chargement: false,
+    appReady: false,
+    routeBusy: false,
     competitions: [],
     competitionsAll: [],
     matchs: [],
@@ -621,9 +625,18 @@ function zanalyz() {
     installIOS: false,
     sheetInstall: false,
     _deferredInstall: null,
+    androidAppUrl: '',
+    iosAppUrl: '',
+    androidAppReady: false,
+    iosAppReady: false,
 
     async init() {
       this.lireRoute();
+      const body = document.body;
+      this.androidAppUrl = body?.dataset?.androidAppUrl || '';
+      this.iosAppUrl = body?.dataset?.iosAppUrl || '';
+      this.androidAppReady = body?.dataset?.androidAppReady === '1';
+      this.iosAppReady = body?.dataset?.iosAppReady === '1';
       if (!this.jourDate) this.jourDate = this.filtreDate || dateLocaleISO(new Date());
       window.addEventListener('popstate', () => this.lireRoute({ pop: true }));
       window.addEventListener('scroll', () => this.onScroll(), { passive: true });
@@ -638,19 +651,24 @@ function zanalyz() {
       if (!estNavigateurHorsLigne()) this.horsLigne = false;
       this.ecouterInstallPWA();
       this.enregistrerSW();
-      await this.chargerInfo();
-      // Import snapshot en arrière-plan : ne doit jamais bloquer le premier affichage.
-      this.syncEngine(false).then((r) => {
-        if (r && r.ok && !r.skipped && this.page === 'matchs') {
-          this.chargerMatchs({ forceNetwork: true });
+      try {
+        await this.chargerInfo();
+        // Import snapshot en arrière-plan : ne doit jamais bloquer le premier affichage.
+        this.syncEngine(false).then((r) => {
+          if (r && r.ok && !r.skipped && this.page === 'matchs') {
+            this.chargerMatchs({ forceNetwork: true });
+          }
+        }).catch(() => {});
+        await this.chargerCompetitions();
+        await this.routeData();
+        this.demarrerUnreadPoll();
+        if (this._ouvrirComposAuDemarrage) {
+          this._ouvrirComposAuDemarrage = false;
+          await this.ouvrirCompos();
         }
-      }).catch(() => {});
-      await this.chargerCompetitions();
-      await this.routeData();
-      this.demarrerUnreadPoll();
-      if (this._ouvrirComposAuDemarrage) {
-        this._ouvrirComposAuDemarrage = false;
-        await this.ouvrirCompos();
+      } finally {
+        this.appReady = true;
+        document.body.classList.add('app-ready');
       }
     },
 
@@ -1266,27 +1284,32 @@ function zanalyz() {
     },
 
     async routeData() {
-      if (this.page === 'matchs') {
-        await this.chargerMatchs();
-        this.$nextTick(() => {
-          const y = sessionStorage.getItem(SS_SCROLL);
-          if (y) window.scrollTo(0, parseInt(y, 10) || 0);
-        });
-      } else if (this.page === 'fiche') {
-        window.scrollTo(0, 0);
-        await this.chargerFiche(this._matchId);
-        await this.chargerPropositions(this._matchId);
-        this.optOuverte = null;
-        this.panelChances = false;
-        this.panelContexte = false;
-        this.voteErr = '';
-        this.propType = 'plus_25';
-        this.propErr = '';
-      } else if (this.page === 'salon') {
-        await this.ouvrirSalon();
-      } else if (this.page === 'reglages') {
-        await this.chargerInfo();
-        if (this.authentifie) await this.chargerClassement();
+      this.routeBusy = true;
+      try {
+        if (this.page === 'matchs') {
+          await this.chargerMatchs();
+          this.$nextTick(() => {
+            const y = sessionStorage.getItem(SS_SCROLL);
+            if (y) window.scrollTo(0, parseInt(y, 10) || 0);
+          });
+        } else if (this.page === 'fiche') {
+          window.scrollTo(0, 0);
+          await this.chargerFiche(this._matchId);
+          await this.chargerPropositions(this._matchId);
+          this.optOuverte = null;
+          this.panelChances = false;
+          this.panelContexte = false;
+          this.voteErr = '';
+          this.propType = 'plus_25';
+          this.propErr = '';
+        } else if (this.page === 'salon') {
+          await this.ouvrirSalon();
+        } else if (this.page === 'reglages') {
+          await this.chargerInfo();
+          if (this.authentifie) await this.chargerClassement();
+        }
+      } finally {
+        this.routeBusy = false;
       }
     },
 
@@ -2434,7 +2457,38 @@ function zanalyz() {
       });
     },
 
-    async installerPWA() {
+    async ouvrirTelechargement(platform) {
+      const isIos = platform === 'ios';
+      const ready = isIos ? this.iosAppReady : this.androidAppReady;
+      const url = isIos ? this.iosAppUrl : this.androidAppUrl;
+      const label = isIos ? 'iOS (App Store)' : 'Android (Play Store)';
+      if (ready && url && /^https?:\/\//i.test(url)) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (this.installePWA) {
+        await this.ouvrirDialog({
+          titre: 'Bientôt disponible',
+          message: `L’application ${label} arrive bientôt. Vous utilisez déjà Zanalyze installé sur cet appareil.`,
+          confirmLabel: 'Compris',
+          showCancel: false,
+          icon: 'download',
+          tone: 'neutral',
+        });
+        return;
+      }
+      const ok = await this.ouvrirDialog({
+        titre: 'Bientôt disponible',
+        message: `L’application ${label} arrive bientôt. En attendant, installez Zanalyze sur votre écran d’accueil.`,
+        confirmLabel: 'Installer l’application (PWA)',
+        cancelLabel: 'Fermer',
+        icon: 'download',
+        tone: 'neutral',
+      });
+      if (ok) await this.installerPWA();
+    },
+
+    async installerPWA(fromSheet = false) {
       if (this._deferredInstall) {
         this._deferredInstall.prompt();
         const choice = await this._deferredInstall.userChoice;
@@ -2447,6 +2501,7 @@ function zanalyz() {
         }
         return;
       }
+      if (fromSheet) return;
       this.sheetInstall = true;
       document.body.classList.add('sheet-open');
     },

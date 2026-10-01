@@ -10,12 +10,16 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=106">
+  <link rel="stylesheet" href="/static/css/app.css?v=112">
 </head>
 <body
   x-data="zanalyz()"
   x-init="init()"
   data-moteur="{{ version_moteur }}"
+  data-android-app-url="{{ android_app_url }}"
+  data-ios-app-url="{{ ios_app_url }}"
+  data-android-app-ready="{% if android_app_ready %}1{% else %}0{% endif %}"
+  data-ios-app-ready="{% if ios_app_ready %}1{% else %}0{% endif %}"
   :class="{ 'salon-mode': page === 'salon' }"
 >
   <a class="skip" href="#contenu">Aller au contenu</a>
@@ -26,12 +30,21 @@
       <img class="topnav-logo topnav-logo-mark" src="/static/icons/icon-192.png?v=81" alt="" width="36" height="36" decoding="async">
     </button>
     <div class="topnav-right">
-      <button type="button" class="topnav-install" x-show="!installePWA" x-cloak
-        @click="installerPWA()" title="Installer l’application" aria-label="Installer l’application">
-        <span x-html="icon('download','icon icon-sm')"></span>
-        <span class="topnav-install-label">Installer</span>
-      </button>
-      <span class="badge-cat" :class="'cat-' + categorie" :title="libCategorie">
+      <div class="topnav-store" role="group" aria-label="Télécharger l’application" x-show="!installePWA" x-cloak>
+        <button type="button" class="topnav-store-btn" @click="ouvrirTelechargement('android')"
+          title="Télécharger Android" aria-label="Télécharger Android">
+          <span x-html="icon('android','icon icon-sm')"></span>
+          <span class="topnav-store-label">Android</span>
+        </button>
+        <span class="topnav-store-sep" aria-hidden="true"></span>
+        <button type="button" class="topnav-store-btn" @click="ouvrirTelechargement('ios')"
+          title="Télécharger iOS" aria-label="Télécharger iOS">
+          <span x-html="icon('apple','icon icon-sm')"></span>
+          <span class="topnav-store-label">iOS</span>
+        </button>
+      </div>
+      <span class="badge-cat" x-show="authentifie" x-cloak
+        :class="'cat-' + categorie" :title="libCategorie">
         <span class="badge-cat-ico" x-html="iconCategorie()"></span>
         <span class="badge-cat-label" x-text="libCategorie"></span>
       </span>
@@ -49,6 +62,21 @@
     </div>
   </nav>
 
+  <div class="app-boot" :class="{ 'is-done': appReady }" aria-live="polite" :aria-busy="!appReady">
+    <div class="app-boot-card">
+      <div class="app-loader" role="status" aria-label="Chargement">
+        <span class="app-loader-ring"></span>
+        <span class="app-loader-ring app-loader-ring-2"></span>
+        <span class="app-loader-core"></span>
+      </div>
+      <p class="app-boot-label">Zanalyze</p>
+    </div>
+  </div>
+
+  <div class="route-busy" x-show="routeBusy" x-cloak aria-hidden="true">
+    <div class="route-busy-bar"></div>
+  </div>
+
   <div class="banners">
     <div class="banner banner-offline" x-show="horsLigne" x-cloak role="status">
       Hors ligne — affichage des dernières données enregistrées.
@@ -62,7 +90,7 @@
     </div>
   </div>
 
-  <header class="page-hero" :class="page === 'matchs' ? 'page-hero-photo' : 'page-hero-accent'">
+  <header class="page-hero" :class="page === 'matchs' ? 'page-hero-photo' : (page === 'fiche' ? 'page-hero-accent page-hero-fiche' : 'page-hero-accent')">
     <div class="hero-bar" x-show="page === 'fiche'" x-cloak>
       <button type="button" class="btn-back" aria-label="Retour" @click="retourListe()">‹</button>
     </div>
@@ -80,7 +108,23 @@
       </div>
     </template>
 
-    <template x-if="page !== 'matchs'">
+    <template x-if="page === 'fiche'">
+      <div class="hero-copy hero-fiche">
+        <p class="kicker" x-text="fiche
+          ? ((fiche.competition && fiche.competition.code) + ' · ' + libStatut(fiche))
+          : 'Analyse'"></p>
+        <h1 class="page-title fiche-hero-title" x-show="fiche" x-cloak>
+          <span class="fiche-hero-side" x-text="fiche.domicile.nom_court"></span>
+          <span class="fiche-hero-score" x-text="fiche.score || 'vs'"></span>
+          <span class="fiche-hero-side" x-text="fiche.exterieur.nom_court"></span>
+        </h1>
+        <h1 class="page-title" x-show="!fiche">Match</h1>
+        <p class="slogan-sub" x-show="fiche" x-cloak
+          x-text="jourCourt(fiche.coup_denvoi) + ' · ' + heure(fiche.coup_denvoi)"></p>
+      </div>
+    </template>
+
+    <template x-if="page !== 'matchs' && page !== 'fiche'">
       <div class="hero-copy">
         <p class="kicker" x-text="kickerPage"></p>
         <h1 class="page-title" x-text="titrePage"></h1>
@@ -158,7 +202,11 @@
         </p>
 
         <div class="loader-wrap" x-show="chargement" x-cloak>
-          <div class="spinner" role="status" aria-label="Chargement"></div>
+          <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+            <span class="app-loader-ring"></span>
+            <span class="app-loader-ring app-loader-ring-2"></span>
+            <span class="app-loader-core"></span>
+          </div>
           <p>Chargement des matchs…</p>
         </div>
 
@@ -286,11 +334,103 @@
     <template x-if="page === 'fiche'">
       <article class="ecran fiche" :class="navDir === 'back' ? 'ecran-back' : ''">
         <div class="loader-wrap" x-show="chargement && !fiche" x-cloak>
-          <div class="spinner" role="status" aria-label="Chargement"></div>
+          <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+            <span class="app-loader-ring"></span>
+            <span class="app-loader-ring app-loader-ring-2"></span>
+            <span class="app-loader-core"></span>
+          </div>
           <p>Chargement du match…</p>
         </div>
         <template x-if="fiche">
-          <div>
+          <div class="fiche-shell">
+            <header class="fiche-hero-card">
+              <div class="fiche-hero-top">
+                <span class="badge soft" x-text="fiche.competition.code"></span>
+                <span class="badge soft"
+                  :class="estEnCours(fiche) ? 'badge-live' : ''"
+                  x-text="libStatut(fiche)"></span>
+              </div>
+
+              <div class="fiche-vs fiche-vs-hero">
+                <button type="button" class="crest-btn lg" @click="ouvrirClub(fiche.domicile, $event)"
+                  :aria-label="'Forme et classement de ' + fiche.domicile.nom_court"
+                  title="Voir forme & classement">
+                  <span class="crest-media">
+                    <img class="club-logo lg" :src="logoUrl(fiche.domicile)" alt="" @error="onLogoError($event)">
+                    <span class="crest-wrap lg crest-fallback" x-html="crestSvg(fiche.domicile, 64)" style="display:none"></span>
+                    <span class="crest-badge" aria-hidden="true" x-html="icon('info','icon icon-sm')"></span>
+                  </span>
+                  <small x-text="fiche.domicile.nom_court"></small>
+                </button>
+                <div class="fiche-score-block">
+                  <span class="fiche-score" x-show="fiche.score" x-cloak x-text="fiche.score"></span>
+                  <span class="vs" x-show="!fiche.score" x-cloak>VS</span>
+                  <span class="fiche-kick" x-text="heure(fiche.coup_denvoi)"></span>
+                </div>
+                <button type="button" class="crest-btn lg" @click="ouvrirClub(fiche.exterieur, $event)"
+                  :aria-label="'Forme et classement de ' + fiche.exterieur.nom_court"
+                  title="Voir forme & classement">
+                  <span class="crest-media">
+                    <img class="club-logo lg" :src="logoUrl(fiche.exterieur)" alt="" @error="onLogoError($event)">
+                    <span class="crest-wrap lg crest-fallback" x-html="crestSvg(fiche.exterieur, 64)" style="display:none"></span>
+                    <span class="crest-badge" aria-hidden="true" x-html="icon('info','icon icon-sm')"></span>
+                  </span>
+                  <small x-text="fiche.exterieur.nom_court"></small>
+                </button>
+              </div>
+
+              <h2 class="fiche-match-title">
+                <span x-text="fiche.domicile.nom"></span>
+                <span class="sep"> – </span>
+                <span x-text="fiche.exterieur.nom"></span>
+              </h2>
+              <p class="comp" x-text="fiche.competition.nom"></p>
+
+              <div class="info-grid info-grid-4 fiche-meta-grid">
+                <div>
+                  <small>Jour</small>
+                  <b x-text="jourCourt(fiche.coup_denvoi)"></b>
+                </div>
+                <div>
+                  <small>Heure</small>
+                  <b x-text="heure(fiche.coup_denvoi)"></b>
+                </div>
+                <div>
+                  <small>Score</small>
+                  <b x-text="fiche.score || '—'"></b>
+                </div>
+                <div>
+                  <small>Journée</small>
+                  <b x-text="fiche.journee || '—'"></b>
+                </div>
+              </div>
+
+              <div class="prono-box" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak>
+                <div class="prono-head">
+                  <strong>Challenge 1X2</strong>
+                  <span class="hint" x-show="peutProno">+2 pts · +12 si OK · bonus série</span>
+                </div>
+                <p class="hint" x-show="!peutProno" x-cloak>
+                  Connecte-toi pour pronostiquer et grimper au classement.
+                </p>
+                <div class="prono-row">
+                  <button type="button" class="btn prono-pick" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '1' ? 'on' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('1')"
+                    x-text="fiche.domicile.nom_court"></button>
+                  <button type="button" class="btn prono-pick" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === 'N' ? 'on' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('N')">Nul</button>
+                  <button type="button" class="btn prono-pick" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '2' ? 'on' : 'btn-ghost'"
+                    :disabled="pronoBusy" @click="poserPronostic('2')"
+                    x-text="fiche.exterieur.nom_court"></button>
+                </div>
+                <p class="hint ok-hint" x-show="pronoMsg" x-cloak x-text="pronoMsg"></p>
+                <div class="obj-mini" x-show="peutProno && progression && progression.objectif" x-cloak>
+                  <div class="obj-bar"><span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span></div>
+                  <small x-text="progression.objectif.message"></small>
+                </div>
+              </div>
+            </header>
+
             <div class="bilan-wrap" x-show="fiche.statut === 'termine'" x-cloak>
               <div class="bilan-head">
                 <span class="panel-ico" x-html="icon('trophy')"></span>
@@ -335,118 +475,55 @@
               </div>
             </div>
 
-            <header class="fiche-panel">
-              <div class="badges-row">
-                <span class="badge soft" x-text="fiche.competition.code"></span>
-                <span class="badge soft"
-                  :class="estEnCours(fiche) ? 'badge-live' : ''"
-                  x-text="libStatut(fiche)"></span>
-              </div>
-              <div class="prono-box" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak>
-                <div class="prono-head">
-                  <strong>Challenge 1X2</strong>
-                  <span class="hint" x-show="peutProno">+2 pts (participation) · +12 si OK · bonus série</span>
-                </div>
-                <p class="hint" x-show="!peutProno" x-cloak>
-                  Connecte-toi pour pronostiquer et grimper Mougou → Boss.
-                </p>
-                <div class="prono-row">
-                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '1' ? '' : 'btn-ghost'"
-                    :disabled="pronoBusy" @click="poserPronostic('1')"
-                    x-text="fiche.domicile.nom_court"></button>
-                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === 'N' ? '' : 'btn-ghost'"
-                    :disabled="pronoBusy" @click="poserPronostic('N')">Nul</button>
-                  <button type="button" class="btn" :class="fiche.mon_pronostic && fiche.mon_pronostic.choix === '2' ? '' : 'btn-ghost'"
-                    :disabled="pronoBusy" @click="poserPronostic('2')"
-                    x-text="fiche.exterieur.nom_court"></button>
-                </div>
-                <p class="hint ok-hint" x-show="pronoMsg" x-cloak x-text="pronoMsg"></p>
-                <div class="obj-mini" x-show="peutProno && progression && progression.objectif" x-cloak>
-                  <div class="obj-bar"><span :style="'width:' + (progression.objectif.progress_pct || 0) + '%'"></span></div>
-                  <small x-text="progression.objectif.message"></small>
-                </div>
-              </div>
-              <div class="fiche-vs">
-                <button type="button" class="crest-btn lg" @click="ouvrirClub(fiche.domicile, $event)"
-                  :aria-label="'Forme et classement de ' + fiche.domicile.nom_court"
-                  title="Voir forme & classement">
-                  <span class="crest-media">
-                    <img class="club-logo lg" :src="logoUrl(fiche.domicile)" alt="" @error="onLogoError($event)">
-                    <span class="crest-wrap lg crest-fallback" x-html="crestSvg(fiche.domicile, 64)" style="display:none"></span>
-                    <span class="crest-badge" aria-hidden="true" x-html="icon('info','icon icon-sm')"></span>
-                  </span>
-                  <small x-text="fiche.domicile.nom_court"></small>
-                </button>
-                <span class="vs">VS</span>
-                <button type="button" class="crest-btn lg" @click="ouvrirClub(fiche.exterieur, $event)"
-                  :aria-label="'Forme et classement de ' + fiche.exterieur.nom_court"
-                  title="Voir forme & classement">
-                  <span class="crest-media">
-                    <img class="club-logo lg" :src="logoUrl(fiche.exterieur)" alt="" @error="onLogoError($event)">
-                    <span class="crest-wrap lg crest-fallback" x-html="crestSvg(fiche.exterieur, 64)" style="display:none"></span>
-                    <span class="crest-badge" aria-hidden="true" x-html="icon('info','icon icon-sm')"></span>
-                  </span>
-                  <small x-text="fiche.exterieur.nom_court"></small>
-                </button>
-              </div>
-              <h2>
-                <span x-text="fiche.domicile.nom"></span>
-                <span class="sep"> – </span>
-                <span x-text="fiche.exterieur.nom"></span>
-              </h2>
-              <p class="comp" x-text="fiche.competition.nom"></p>
-              <div class="info-grid info-grid-4">
-                <div>
-                  <small>Jour</small>
-                  <b x-text="jourCourt(fiche.coup_denvoi)"></b>
-                </div>
-                <div>
-                  <small>Heure</small>
-                  <b x-text="heure(fiche.coup_denvoi)"></b>
-                </div>
-                <div>
-                  <small>Score</small>
-                  <b x-text="fiche.score || '—'"></b>
-                </div>
-                <div>
-                  <small>Journée</small>
-                  <b x-text="fiche.journee || '—'"></b>
-                </div>
-              </div>
-            </header>
-
             <template x-if="fiche.analyse">
-              <div class="stats-table">
-                <div class="stats-row head">
-                  <span>Indicateur</span>
-                  <span>Valeur</span>
+              <section class="fiche-kpis">
+                <div class="fiche-sec-head">
+                  <h2 class="sec-titre">Lecture moteur</h2>
+                  <p class="hint">Profil, score attendu et tendances 1X2.</p>
                 </div>
-                <div class="stats-row">
-                  <span>Profil</span>
-                  <strong x-text="libProfil(fiche.analyse.profil)"></strong>
+                <div class="kpi-tiles">
+                  <article class="kpi-tile">
+                    <small>Profil</small>
+                    <strong x-text="libProfil(fiche.analyse.profil)"></strong>
+                  </article>
+                  <article class="kpi-tile accent">
+                    <small>Score probable</small>
+                    <strong x-text="fiche.analyse.score_probable"></strong>
+                  </article>
+                  <article class="kpi-tile">
+                    <small x-text="'Buts · ' + fiche.domicile.nom_court"></small>
+                    <strong x-text="fiche.analyse.buts_dom_attendus.toFixed(2)"></strong>
+                  </article>
+                  <article class="kpi-tile">
+                    <small x-text="'Buts · ' + fiche.exterieur.nom_court"></small>
+                    <strong x-text="fiche.analyse.buts_ext_attendus.toFixed(2)"></strong>
+                  </article>
                 </div>
-                <div class="stats-row">
-                  <span>Score probable</span>
-                  <strong x-text="fiche.analyse.score_probable"></strong>
+                <div class="x2-bars" aria-label="Probabilités 1X2">
+                  <div class="x2-row">
+                    <span class="x2-lab" x-text="fiche.domicile.nom_court"></span>
+                    <div class="x2-track"><i :style="'width:' + sur100(fiche.analyse.p1) + '%'"></i></div>
+                    <strong x-text="fmtPct(fiche.analyse.p1)"></strong>
+                  </div>
+                  <div class="x2-row">
+                    <span class="x2-lab">Nul</span>
+                    <div class="x2-track mid"><i :style="'width:' + sur100(fiche.analyse.pn) + '%'"></i></div>
+                    <strong x-text="fmtPct(fiche.analyse.pn)"></strong>
+                  </div>
+                  <div class="x2-row">
+                    <span class="x2-lab" x-text="fiche.exterieur.nom_court"></span>
+                    <div class="x2-track away"><i :style="'width:' + sur100(fiche.analyse.p2) + '%'"></i></div>
+                    <strong x-text="fmtPct(fiche.analyse.p2)"></strong>
+                  </div>
                 </div>
-                <div class="stats-row">
-                  <span x-text="'Buts attendus · ' + fiche.domicile.nom_court"></span>
-                  <strong x-text="fiche.analyse.buts_dom_attendus.toFixed(2)"></strong>
-                </div>
-                <div class="stats-row">
-                  <span x-text="'Buts attendus · ' + fiche.exterieur.nom_court"></span>
-                  <strong x-text="fiche.analyse.buts_ext_attendus.toFixed(2)"></strong>
-                </div>
-                <div class="stats-row">
-                  <span>1X2 (prob.)</span>
-                  <strong x-text="fmtPct(fiche.analyse.p1) + ' / ' + fmtPct(fiche.analyse.pn) + ' / ' + fmtPct(fiche.analyse.p2)"></strong>
-                </div>
-              </div>
+                <p x-show="fiche.analyse.douteuse" class="doute">Ajustement douteux (résidu élevé) — à lire avec prudence.</p>
+              </section>
             </template>
-            <p x-show="fiche.analyse && fiche.analyse.douteuse" class="doute">Ajustement douteux (résidu élevé) — à lire avec prudence.</p>
 
-            <h2 class="sec-titre">Recommandations</h2>
-            <p class="hint">Touche une carte pour l’explication. Vote pour comparer le consensus à la prédiction.</p>
+            <div class="fiche-sec-head">
+              <h2 class="sec-titre">Recommandations</h2>
+              <p class="hint">Touche une carte pour l’explication. Vote pour comparer le consensus à la prédiction.</p>
+            </div>
             <template x-for="(o, i) in recoFiche" :key="o.code">
               <section :class="'opt opt-' + o.niveau + (optOuverte === o.id ? ' open' : '')"
                 :style="'animation-delay:' + (i * 0.08) + 's'"
@@ -624,7 +701,7 @@
               </div>
             </section>
 
-            <section class="bloc-card prop-card">
+            <section class="panel-card prop-card">
               <div class="prop-card-head">
                 <span class="panel-ico" x-html="icon('users')"></span>
                 <div>
@@ -766,7 +843,11 @@
             <template x-if="salonOnglet === 'classement'">
               <div class="classement-wrap">
                 <div class="loader-wrap" x-show="classementChargement" x-cloak>
-                  <div class="spinner" role="status" aria-label="Chargement"></div>
+                  <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+                    <span class="app-loader-ring"></span>
+                    <span class="app-loader-ring app-loader-ring-2"></span>
+                    <span class="app-loader-core"></span>
+                  </div>
                 </div>
                 <ol class="classement-liste" x-show="!classementChargement" x-cloak>
                   <template x-for="row in classement" :key="row.username">
@@ -810,7 +891,11 @@
                 <p>Encore calme ici… Lance le premier message, allez.</p>
               </div>
               <div class="loader-wrap salon-loader" x-show="chatChargement && !chatMessages.length" x-cloak>
-                <div class="spinner" role="status" aria-label="Chargement"></div>
+                <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+                  <span class="app-loader-ring"></span>
+                  <span class="app-loader-ring app-loader-ring-2"></span>
+                  <span class="app-loader-core"></span>
+                </div>
               </div>
               <template x-for="(msg, idx) in chatMessages" :key="'m-' + msg.id">
                 <div class="chat-row"
@@ -916,10 +1001,16 @@
 
     <template x-if="page === 'reglages'">
       <div class="ecran reglages">
-        <p class="lead">Compte, compétitions et cache — tout reste sur cet appareil.</p>
+        <p class="lead reglages-lead">Compte, compétitions et cache — tout reste sur cet appareil.</p>
 
-        <section class="bloc-card">
-          <h2>Compte</h2>
+        <section class="bloc-card reglages-card">
+          <div class="reglages-card-head">
+            <span class="panel-ico" x-html="icon('user')"></span>
+            <div>
+              <h2>Compte</h2>
+              <p class="hint">Identité, challenge et statut Premium</p>
+            </div>
+          </div>
           <template x-if="authentifie">
             <div>
               <p>
@@ -1035,11 +1126,7 @@
           <template x-if="!authentifie">
             <div>
               <p class="hint">
-                Tu es <span class="badge-cat cat-visiteur">
-                  <span class="badge-cat-ico" x-html="iconCategorie('visiteur')"></span>
-                  <span>Visiteur</span>
-                </span> :
-                consultation limitée. Crée un compte pour devenir Membre.
+                Consultation limitée sans compte. Connecte-toi ou crée un compte pour devenir Membre.
               </p>
             <form class="auth-form" @submit.prevent="authSubmit()">
               <div class="puces auth-puces">
@@ -1092,9 +1179,14 @@
           </template>
         </section>
 
-        <section class="bloc-card">
-          <h2>Compétitions suivies</h2>
-          <p class="hint">Ligues + coupes nationales. Désactive un interrupteur pour retirer la compétition des puces d’accueil.</p>
+        <section class="bloc-card reglages-card">
+          <div class="reglages-card-head">
+            <span class="panel-ico" x-html="icon('layers')"></span>
+            <div>
+              <h2>Compétitions suivies</h2>
+              <p class="hint">Ligues + coupes — désactive pour retirer une compétition des puces d’accueil</p>
+            </div>
+          </div>
           <template x-for="groupe in competitionsParPays" :key="groupe.pays">
             <div class="comp-pays">
               <h3 class="comp-pays-titre">
@@ -1123,8 +1215,14 @@
           <p class="vide vide-sm" x-show="!competitionsAll.length">Aucune compétition importée pour l’instant.</p>
         </section>
 
-        <section class="bloc-card">
-          <h2>Application</h2>
+        <section class="bloc-card reglages-card">
+          <div class="reglages-card-head">
+            <span class="panel-ico" x-html="icon('settings')"></span>
+            <div>
+              <h2>Application</h2>
+              <p class="hint">Version, installation et cache local</p>
+            </div>
+          </div>
           <ul class="info-rows">
             <li>
               <span>Dernier rafraîchissement</span>
@@ -1135,22 +1233,40 @@
               <strong x-text="moteur || '—'"></strong>
             </li>
           </ul>
-          <button type="button" class="btn btn-block" x-show="!installePWA" x-cloak
-            @click="installerPWA()">
-            <span x-html="icon('download','icon icon-sm')"></span>
-            Installer Zanalyze
-          </button>
+          <div class="store-download" x-show="!installePWA" x-cloak role="group" aria-label="Télécharger l’application">
+            <button type="button" class="store-download-btn" @click="ouvrirTelechargement('android')">
+              <span x-html="icon('android','icon icon-sm')"></span>
+              <span class="store-download-copy">
+                <small>Télécharger</small>
+                <strong>Android</strong>
+              </span>
+            </button>
+            <button type="button" class="store-download-btn" @click="ouvrirTelechargement('ios')">
+              <span x-html="icon('apple','icon icon-sm')"></span>
+              <span class="store-download-copy">
+                <small>Télécharger</small>
+                <strong>iOS</strong>
+              </span>
+            </button>
+          </div>
           <p class="hint" x-show="installePWA" x-cloak>Application déjà installée sur cet appareil.</p>
-          <p class="hint" x-show="!installePWA && installHint" x-cloak x-text="installHint"></p>
+          <p class="hint" x-show="!installePWA" x-cloak>
+            Les apps stores arrivent bientôt. En attendant, installez la version web (PWA).
+          </p>
           <button type="button" class="btn btn-ghost" @click="purgerCache()">Purger le cache</button>
           <p class="hint" x-show="cachePurge" x-cloak>Cache vidé. Recharge si besoin.</p>
         </section>
 
-        <section class="bloc-card">
-          <h2>Conditions Générales d’utilisation (CGU)</h2>
+        <section class="bloc-card reglages-card">
+          <div class="reglages-card-head">
+            <span class="panel-ico" x-html="icon('info')"></span>
+            <div>
+              <h2>Conditions Générales d’utilisation</h2>
+              <p class="hint">Analyse probabiliste — aucun gain garanti</p>
+            </div>
+          </div>
           <p class="hint">
-            Zanalyze est un outil d’analyse probabiliste. Aucun gain n’est garanti.
-            L’utilisateur reste seul responsable de ses décisions de jeu.
+            Zanalyze est un outil d’analyse. L’utilisateur reste seul responsable de ses décisions de jeu.
           </p>
           <button type="button" class="btn btn-ghost btn-block" @click="ouvrirCgu()">
             Lire les CGU
@@ -1203,7 +1319,7 @@
       @touchmove.passive="sheetDragMove($event)"
       @touchend="sheetDragEnd()"></div>
     <div class="sheet-body">
-      <h2 class="sheet-title">Installer Zanalyze</h2>
+      <h2 class="sheet-title">Installer Zanalyze (PWA)</h2>
       <p class="hint" x-text="installHint"></p>
       <ol class="install-steps">
         <li x-show="installIOS" x-cloak>Touche <strong>Partager</strong> dans Safari.</li>
@@ -1212,7 +1328,7 @@
         <li x-show="!installIOS" x-cloak>Choisis <strong>Installer l’application</strong> / <strong>Ajouter à l’écran d’accueil</strong>.</li>
       </ol>
       <button type="button" class="btn btn-block" x-show="peutInstaller" x-cloak
-        @click="installerPWA()">Lancer l’installation</button>
+        @click="installerPWA(true)">Lancer l’installation</button>
       <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
     </div>
   </div>
@@ -1250,7 +1366,11 @@
       </div>
       <p class="hint no-print" x-show="partageMsg" x-cloak x-text="partageMsg"></p>
       <div class="loader-wrap no-print" x-show="chargementJour" x-cloak>
-        <div class="spinner" role="status" aria-label="Chargement"></div>
+        <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+          <span class="app-loader-ring"></span>
+          <span class="app-loader-ring app-loader-ring-2"></span>
+          <span class="app-loader-core"></span>
+        </div>
         <p>Chargement de l’analyse…</p>
       </div>
       <div class="vide vide-sm no-print" x-show="!chargementJour && !predictionsJour.length" x-cloak>
@@ -1617,32 +1737,39 @@
       @touchmove.passive="sheetDragMove($event)"
       @touchend="sheetDragEnd()"></div>
     <div class="loader-wrap" x-show="apercuChargement" x-cloak>
-      <div class="spinner" role="status" aria-label="Chargement"></div>
+      <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+        <span class="app-loader-ring"></span>
+        <span class="app-loader-ring app-loader-ring-2"></span>
+        <span class="app-loader-core"></span>
+      </div>
     </div>
     <p class="hint" x-show="!apercuChargement && apercuErr" x-cloak style="padding:16px" x-text="apercuErr"></p>
     <template x-if="apercu && !apercuChargement">
-      <div class="sheet-body">
-        <div class="sheet-match-head">
+      <div class="sheet-body apercu-sheet-body">
+        <div class="sheet-match-head apercu-hero">
           <button type="button" class="crest-btn" @click="ouvrirClub(apercu.domicile, $event)"
             :aria-label="'Forme et classement de ' + apercu.domicile.nom_court"
             title="Voir forme & classement">
             <img class="club-logo" :src="logoUrl(apercu.domicile)" alt="" @error="onLogoError($event)">
             <span class="crest-wrap crest-fallback" x-html="crestSvg(apercu.domicile, 40)" style="display:none"></span>
+            <small x-text="apercu.domicile.nom_court"></small>
           </button>
-          <div>
-            <strong x-text="apercu.domicile.nom_court + ' – ' + apercu.exterieur.nom_court"></strong>
-            <p x-text="apercu.competition.nom + ' · ' + dateHeure(apercu.coup_denvoi)"></p>
+          <div class="apercu-center">
+            <span class="apercu-comp" x-text="apercu.competition.code || apercu.competition.nom"></span>
             <p class="apercu-score" x-show="apercu.score" x-cloak x-text="apercu.score"></p>
+            <p class="apercu-vs" x-show="!apercu.score" x-cloak>VS</p>
+            <p class="apercu-when" x-text="dateHeure(apercu.coup_denvoi)"></p>
             <p class="hint hint-live" x-show="estEnCours(apercu)" x-cloak>
-              <span class="live-dot" aria-hidden="true"></span> Match en cours
+              <span class="live-dot" aria-hidden="true"></span> En cours
             </p>
-            <p class="hint" x-show="apercu.statut === 'termine'" x-cloak>Match terminé — bilan des tips</p>
+            <p class="hint" x-show="apercu.statut === 'termine'" x-cloak>Bilan des tips</p>
           </div>
           <button type="button" class="crest-btn" @click="ouvrirClub(apercu.exterieur, $event)"
             :aria-label="'Forme et classement de ' + apercu.exterieur.nom_court"
             title="Voir forme & classement">
             <img class="club-logo" :src="logoUrl(apercu.exterieur)" alt="" @error="onLogoError($event)">
             <span class="crest-wrap crest-fallback" x-html="crestSvg(apercu.exterieur, 40)" style="display:none"></span>
+            <small x-text="apercu.exterieur.nom_court"></small>
           </button>
         </div>
         <div class="bilan-resume" x-show="apercu.statut === 'termine' && bilanResume(apercu)" x-cloak>
@@ -1703,49 +1830,72 @@
       @touchmove.passive="sheetDragMove($event)"
       @touchend="sheetDragEnd()"></div>
     <div class="loader-wrap" x-show="clubChargement" x-cloak>
-      <div class="spinner" role="status" aria-label="Chargement"></div>
+      <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+        <span class="app-loader-ring"></span>
+        <span class="app-loader-ring app-loader-ring-2"></span>
+        <span class="app-loader-core"></span>
+      </div>
       <p>Infos club…</p>
     </div>
     <template x-if="clubInfos && !clubChargement">
-      <div class="sheet-body">
-        <div class="club-head">
-          <img class="club-logo xl" :src="logoUrl(clubEq || {id: clubInfos.equipe_id})" alt="">
-          <div>
+      <div class="sheet-body club-sheet-body">
+        <header class="club-hero">
+          <div class="club-hero-crest">
+            <img class="club-logo xl" :src="logoUrl(clubEq || {id: clubInfos.equipe_id})" alt="">
+          </div>
+          <div class="club-hero-copy">
             <h2 x-text="clubInfos.nom"></h2>
             <p x-text="(clubInfos.pays || '') + (clubInfos.position ? ' · #' + clubInfos.position : '')"></p>
           </div>
-        </div>
-        <div class="forme-row" x-show="clubInfos.forme && clubInfos.forme.length">
-          <template x-for="(f, i) in clubInfos.forme" :key="i">
-            <span :class="'forme-pill forme-' + f" x-text="f"></span>
-          </template>
-        </div>
-        <template x-if="clubInfos.classement">
-          <div class="stats-table">
-            <div class="stats-row head"><span>Classement</span><span x-text="clubInfos.classement.competition || ''"></span></div>
-            <div class="stats-row"><span>Position</span><strong x-text="'#' + clubInfos.classement.position"></strong></div>
-            <div class="stats-row"><span>Points</span><strong x-text="clubInfos.classement.points"></strong></div>
-            <div class="stats-row"><span>J / G / N / P</span>
-              <strong x-text="(clubInfos.classement.joues||0)+' / '+(clubInfos.classement.gagnes||0)+' / '+(clubInfos.classement.nuls||0)+' / '+(clubInfos.classement.perdus||0)"></strong>
-            </div>
-            <div class="stats-row"><span>Buts</span>
-              <strong x-text="(clubInfos.classement.buts_pour||0)+' : '+(clubInfos.classement.buts_contre||0)"></strong>
-            </div>
+          <div class="forme-row forme-row-hero" x-show="clubInfos.forme && clubInfos.forme.length" x-cloak>
+            <template x-for="(f, i) in clubInfos.forme" :key="i">
+              <span :class="'forme-pill forme-' + f" x-text="f"></span>
+            </template>
           </div>
+        </header>
+
+        <template x-if="clubInfos.classement">
+          <section class="club-stats">
+            <div class="club-stats-head">
+              <h3 class="sec-titre">Classement</h3>
+              <span class="club-comp-pill" x-text="clubInfos.classement.competition || ''"></span>
+            </div>
+            <div class="club-kpi-grid">
+              <article class="club-kpi accent">
+                <small>Position</small>
+                <strong x-text="'#' + clubInfos.classement.position"></strong>
+              </article>
+              <article class="club-kpi">
+                <small>Points</small>
+                <strong x-text="clubInfos.classement.points"></strong>
+              </article>
+              <article class="club-kpi">
+                <small>J / G / N / P</small>
+                <strong x-text="(clubInfos.classement.joues||0)+' / '+(clubInfos.classement.gagnes||0)+' / '+(clubInfos.classement.nuls||0)+' / '+(clubInfos.classement.perdus||0)"></strong>
+              </article>
+              <article class="club-kpi">
+                <small>Buts</small>
+                <strong x-text="(clubInfos.classement.buts_pour||0)+' : '+(clubInfos.classement.buts_contre||0)"></strong>
+              </article>
+            </div>
+          </section>
         </template>
-        <h3 class="sec-titre">Forme récente</h3>
-        <ul class="recents">
-          <template x-for="(m, i) in clubInfos.recents" :key="i">
-            <li>
-              <span :class="'forme-pill forme-' + m.resultat" x-text="m.resultat"></span>
-              <span x-text="(m.domicile ? 'vs ' : '@ ') + m.adversaire"></span>
-              <strong x-text="m.score"></strong>
-            </li>
-          </template>
-        </ul>
-        <p class="vide vide-sm" x-show="!(clubInfos.recents||[]).length">
-          Aucun match terminé en base pour ce club (normal juste après import ESPN).
-        </p>
+
+        <section class="club-recents-block">
+          <h3 class="sec-titre">Forme récente</h3>
+          <ul class="recents">
+            <template x-for="(m, i) in clubInfos.recents" :key="i">
+              <li>
+                <span :class="'forme-pill forme-' + m.resultat" x-text="m.resultat"></span>
+                <span x-text="(m.domicile ? 'vs ' : '@ ') + m.adversaire"></span>
+                <strong x-text="m.score"></strong>
+              </li>
+            </template>
+          </ul>
+          <p class="vide vide-sm" x-show="!(clubInfos.recents||[]).length">
+            Aucun match terminé en base pour ce club (normal juste après import ESPN).
+          </p>
+        </section>
         <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
       </div>
     </template>
@@ -1767,7 +1917,11 @@
           x-text="(classementMoi && classementMoi.libelle_categorie) || (categorie === 'premium' ? 'Premium' : 'Membres')"></span>
       </h2>
       <div class="loader-wrap" x-show="classementChargement" x-cloak>
-        <div class="spinner" role="status"></div>
+        <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
+          <span class="app-loader-ring"></span>
+          <span class="app-loader-ring app-loader-ring-2"></span>
+          <span class="app-loader-core"></span>
+        </div>
       </div>
       <ol class="classement-liste" x-show="!classementChargement" x-cloak>
         <template x-for="row in classement" :key="'cl-' + row.username">
@@ -1974,7 +2128,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=107"></script>
+  <script defer src="/static/js/app.js?v=112"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

@@ -225,3 +225,7 @@ ZANALYZ_SYNC_LIVE = _env_first('ZANALYZ_SYNC_LIVE', default='1')
 # Alias rÃ©trocompat (imports / scripts externes Ã©ventuels)
 C2B_MOTEUR_URL = ZANALYZ_MOTEUR_URL
 C2B_REDIS_URL = ZANALYZ_REDIS_URL
+
+# Liens stores (accueil / reglages). Hors http(s) => popup « Bientôt disponible » + PWA.
+ANDROID_APP_URL = _env_first('ANDROID_APP_URL', default='#')
+IOS_APP_URL = _env_first('IOS_APP_URL', default='#')
