@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=112">
+  <link rel="stylesheet" href="/static/css/app.css?v=114">
 </head>
 <body
   x-data="zanalyz()"
@@ -232,7 +232,7 @@
                       <img class="club-logo" :src="logoUrl(m.domicile)" alt="" @error="onLogoError($event)">
                       <span class="crest-wrap crest-fallback" x-html="crestSvg(m.domicile, 32)" style="display:none"></span>
                     </button>
-                    <span class="avatars-sep" aria-hidden="true"></span>
+                    <span class="avatars-sep" aria-hidden="true">vs</span>
                     <button type="button" class="crest-btn" @click.stop="ouvrirClub(m.exterieur, $event)"
                       :aria-label="'Forme et classement de ' + m.exterieur.nom_court"
                       title="Voir forme & classement">
@@ -250,11 +250,10 @@
                   </div>
                 </div>
                 <div class="tags">
-                  <span class="tag"><span x-html="icon('trophy','icon icon-sm')"></span><span x-text="m.competition.code"></span></span>
-                  <span class="tag"><span x-html="icon('calendar','icon icon-sm')"></span><span x-text="jourCourt(m.coup_denvoi)"></span></span>
-                  <span class="tag" x-show="statutEffectif(m) === 'a_venir' || m.statut === 'reporte'">
-                    <span x-html="icon('clock','icon icon-sm')"></span><span x-text="heure(m.coup_denvoi)"></span>
-                  </span>
+                  <span class="tag tag-comp"><span x-text="m.competition.code"></span></span>
+                  <span class="tag" x-text="jourCourt(m.coup_denvoi)"></span>
+                  <span class="tag" x-show="statutEffectif(m) === 'a_venir' || m.statut === 'reporte'"
+                    x-text="heure(m.coup_denvoi)"></span>
                   <span class="tag tag-live" x-show="estEnCours(m)" x-cloak>
                     <span class="live-dot" aria-hidden="true"></span>
                     En cours
@@ -283,6 +282,10 @@
                         </span>
                         <strong class="pct-pred" :class="toneProb(prudente(m).probabilite)"
                           x-text="fmtPct(prudente(m).probabilite)"></strong>
+                      </div>
+                      <div class="carte-reco-bar" aria-hidden="true">
+                        <i :class="toneProb(prudente(m).probabilite)"
+                          :style="'width:' + sur100(prudente(m).probabilite) + '%'"></i>
                       </div>
                       <div class="pct-row consensus">
                         <span>Consensus</span>
@@ -316,7 +319,7 @@
                     </button>
                   </div>
                   <button type="button" class="btn-voir" @click.stop="ouvrirMatch(m.id)">
-                    Détails <span x-html="icon('arrow')"></span>
+                    Voir l’analyse <span x-html="icon('arrow')"></span>
                   </button>
                 </div>
                 <div class="carte-pied no-apercu" x-show="m.statut === 'termine'" x-cloak>
@@ -767,19 +770,28 @@
               </ul>
               <p class="vide vide-sm" x-show="!propositions.length">Aucune proposition pour l’instant — sois le premier.</p>
               <form class="prop-compose" @submit.prevent="proposerParis()">
-                <p class="prop-compose-label">Publier ton scénario (1 par match)</p>
-                <div class="prop-types">
+                <p class="prop-compose-label">Publier ton scénario <span>(1 par match)</span></p>
+                <p class="prop-compose-hint" x-show="!propType" x-cloak>Choisis un scénario pour activer Publier.</p>
+                <div class="prop-types" role="group" aria-label="Scénario">
                   <template x-for="t in TYPES_PROPOSITION" :key="t.code">
                     <button type="button"
                       :class="propType === t.code ? 'prop-type on' : 'prop-type'"
-                      @click="propType = t.code"
+                      :aria-pressed="propType === t.code"
+                      @click="propType = (propType === t.code ? '' : t.code); propErr = ''"
                       x-text="t.label"></button>
                   </template>
                 </div>
-                <label class="prop-range">Confiance <strong x-text="propConfiance + ' %'"></strong>
-                  <input type="range" min="1" max="99" x-model.number="propConfiance">
+                <label class="prop-range" :class="propType ? '' : 'is-dim'">
+                  <span class="prop-range-head">
+                    <span>Confiance</span>
+                    <strong x-text="propConfiance + ' %'"></strong>
+                  </span>
+                  <input type="range" min="1" max="99" x-model.number="propConfiance" :disabled="!propType">
                 </label>
-                <button type="submit" class="btn btn-block">Publier</button>
+                <button type="submit" class="btn btn-block prop-publish"
+                  :disabled="!propType"
+                  :class="propType ? '' : 'is-disabled'"
+                  x-text="propType ? 'Publier' : 'Choisis un scénario'"></button>
                 <p class="ko" x-show="propErr" x-text="propErr" x-cloak></p>
               </form>
             </section>
@@ -1293,14 +1305,20 @@
     :aria-hidden="!dialog"
     @click.self="repondreDialog(false)">
     <div class="app-dialog-card" x-show="dialog" x-cloak
-      :class="dialog ? ('tone-' + (dialog.tone || 'neutral')) : ''">
+      :class="dialog ? [
+        'tone-' + (dialog.tone || 'neutral'),
+        dialog.actionsStack ? 'is-stack' : '',
+      ] : ''">
       <div class="app-dialog-ico" aria-hidden="true">
         <span x-html="dialog ? icon(dialog.icon || 'info', 'icon icon-lg') : ''"></span>
       </div>
+      <p class="app-dialog-kicker" x-show="dialog && dialog.kicker" x-cloak
+        x-text="dialog.kicker"></p>
       <h2 class="app-dialog-title" x-text="dialog ? dialog.titre : ''"></h2>
       <p class="app-dialog-msg" x-text="dialog ? dialog.message : ''"></p>
-      <div class="app-dialog-actions">
-        <button type="button" class="btn btn-ghost"
+      <div class="app-dialog-actions"
+        :class="dialog && dialog.actionsStack ? 'app-dialog-actions-stack' : ''">
+        <button type="button" class="btn btn-ghost app-dialog-cancel"
           x-show="!dialog || dialog.showCancel !== false"
           @click="repondreDialog(false)"
           x-text="dialog ? dialog.cancelLabel : 'Annuler'"></button>
@@ -2128,7 +2146,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=112"></script>
+  <script defer src="/static/js/app.js?v=114"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

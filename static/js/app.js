@@ -573,7 +573,7 @@ function zanalyz() {
     authErr: '',
     propositions: [],
     propConsensus: null,
-    propType: 'plus_25',
+    propType: '',
     propConfiance: 60,
     propErr: '',
     voteErr: '',
@@ -1300,7 +1300,7 @@ function zanalyz() {
           this.panelChances = false;
           this.panelContexte = false;
           this.voteErr = '';
-          this.propType = 'plus_25';
+          this.propType = '';
           this.propErr = '';
         } else if (this.page === 'salon') {
           await this.ouvrirSalon();
@@ -1631,11 +1631,13 @@ function zanalyz() {
         this.dialog = {
           titre: opts.titre || 'Confirmation',
           message: opts.message || '',
+          kicker: opts.kicker || '',
           confirmLabel: opts.confirmLabel || 'Confirmer',
           cancelLabel: opts.cancelLabel || 'Annuler',
-          tone: opts.tone || 'neutral', // neutral | danger | warn
-          icon: opts.icon || (opts.tone === 'danger' ? 'log-out' : (opts.tone === 'warn' ? 'clock' : 'info')),
+          tone: opts.tone || 'neutral', // neutral | danger | warn | download
+          icon: opts.icon || (opts.tone === 'danger' ? 'log-out' : (opts.tone === 'warn' ? 'clock' : (opts.tone === 'download' ? 'download' : 'info'))),
           showCancel: opts.showCancel !== false,
+          actionsStack: !!opts.actionsStack,
         };
         this._dialogResolve = resolve;
         document.body.classList.add('sheet-open');
@@ -1975,6 +1977,7 @@ function zanalyz() {
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         await this.chargerPropositions(this.fiche.id);
+        this.propType = '';
         this.propErr = '';
         if (data.points_gagnes) {
           await this.chargerInfo();
@@ -2461,29 +2464,34 @@ function zanalyz() {
       const isIos = platform === 'ios';
       const ready = isIos ? this.iosAppReady : this.androidAppReady;
       const url = isIos ? this.iosAppUrl : this.androidAppUrl;
-      const label = isIos ? 'iOS (App Store)' : 'Android (Play Store)';
+      const store = isIos ? 'App Store' : 'Play Store';
+      const platformLabel = isIos ? 'iOS' : 'Android';
       if (ready && url && /^https?:\/\//i.test(url)) {
         window.open(url, '_blank', 'noopener,noreferrer');
         return;
       }
       if (this.installePWA) {
         await this.ouvrirDialog({
-          titre: 'Bientôt disponible',
-          message: `L’application ${label} arrive bientôt. Vous utilisez déjà Zanalyze installé sur cet appareil.`,
+          titre: 'Bientôt sur les stores',
+          kicker: platformLabel + ' · ' + store,
+          message: `L’app ${platformLabel} arrive bientôt. Zanalyze est déjà installé sur cet appareil.`,
           confirmLabel: 'Compris',
           showCancel: false,
-          icon: 'download',
-          tone: 'neutral',
+          icon: isIos ? 'apple' : 'android',
+          tone: 'download',
+          actionsStack: true,
         });
         return;
       }
       const ok = await this.ouvrirDialog({
-        titre: 'Bientôt disponible',
-        message: `L’application ${label} arrive bientôt. En attendant, installez Zanalyze sur votre écran d’accueil.`,
-        confirmLabel: 'Installer l’application (PWA)',
-        cancelLabel: 'Fermer',
-        icon: 'download',
-        tone: 'neutral',
+        titre: 'Bientôt sur les stores',
+        kicker: platformLabel + ' · ' + store,
+        message: `L’application ${platformLabel} arrive bientôt. En attendant, ajoute Zanalyze à ton écran d’accueil.`,
+        confirmLabel: 'Installer sur l’écran d’accueil',
+        cancelLabel: 'Plus tard',
+        icon: isIos ? 'apple' : 'android',
+        tone: 'download',
+        actionsStack: true,
       });
       if (ok) await this.installerPWA();
     },
