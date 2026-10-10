@@ -7,7 +7,7 @@ from paris.dashboard import build_dashboard_stats
 from paris.models import (
     Analyse, Competition, Contexte, Cote, Equipe, HistoriqueAbonnement, Match,
     MessageChat, Option, Profil, PronosticPremium, PropositionParis, ReglageSite,
-    TraceActivite, VisiteJour, Vote, VoteOption,
+    TraceActivite, VisiteJour, Vote, VoteOption, PaiementPremium,
 )
 
 # Dashboard activité sur l’index admin.
@@ -482,10 +482,10 @@ class ProfilAdmin(admin.ModelAdmin):
 
 @admin.register(ReglageSite)
 class ReglageSiteAdmin(admin.ModelAdmin):
-    list_display = ('resume', 'whatsapp_phone', 'vip_tarif_libelle', 'maj')
+    list_display = ('resume', 'vip_prix_xaf', 'whatsapp_phone', 'maj')
     fields = (
         'whatsapp_phone', 'whatsapp_message', 'whatsapp_url',
-        'vip_tarif_libelle', 'updated_at',
+        'vip_prix_xaf', 'vip_tarif_libelle', 'updated_at',
     )
     readonly_fields = ('updated_at',)
 
@@ -578,4 +578,19 @@ class TraceActiviteAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PaiementPremium)
+class PaiementPremiumAdmin(admin.ModelAdmin):
+    list_display = ('reference', 'user', 'montant_xaf', 'statut', 'cree_le', 'active_le')
+    list_filter = ('statut',)
+    search_fields = ('reference', 'user__username')
+    readonly_fields = ('reference', 'user', 'montant_xaf', 'statut', 'lien_paiement',
+                       'singpay_id', 'cree_le', 'maj_le', 'active_le')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

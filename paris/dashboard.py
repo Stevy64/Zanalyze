@@ -12,6 +12,10 @@ from paris.chat import messages_actifs, seuil_expiration
 from paris.models import Match, MessageChat, Option, Profil, TraceActivite
 from paris.roles import CATEGORIES_VIP
 
+# Même seuil que l'API publique : un taux sur moins de vingt règlements ne
+# veut rien dire, et l'admin n'a pas à lire un chiffre que le site cache.
+MIN_ECHANTILLON_TAUX = 20
+
 
 def _vip_actifs_qs():
     now = timezone.now()
@@ -34,12 +38,21 @@ def build_dashboard_stats() -> dict:
     n_a_venir = Match.objects.filter(
         sofascore_id__isnull=False, statut__in=('a_venir', 'en_cours'),
     ).count()
+    # Le niveau « filet » est toujours « au moins un but », que le moteur
+    # exclut explicitement de ses tips : c'est une couverture, pas une
+    # recommandation. Le mélanger aux tips prudents gonflait le taux affiché
+    # de 64,1 % à 78,8 %, soit +14,7 points, sans aucun garde-fou
+    # d'échantillon. Les deux sont désormais comptés séparément.
     tips_regles = Option.objects.filter(
-        resultat__in=('gagne', 'perdu'),
-        niveau__in=('prudente', 'filet'),
+        resultat__in=('gagne', 'perdu'), niveau='prudente',
     )
     n_tips = tips_regles.count()
     n_gagnes = tips_regles.filter(resultat='gagne').count()
+    filet_regles = Option.objects.filter(
+        resultat__in=('gagne', 'perdu'), niveau='filet',
+    )
+    n_filet = filet_regles.count()
+    n_filet_gagnes = filet_regles.filter(resultat='gagne').count()
     n_msg_actifs = messages_actifs().count()
     n_msg_24h = MessageChat.objects.filter(created_at__gte=depuis_24h).count()
     n_inscrits_7j = User.objects.filter(date_joined__gte=depuis_7j).count()
@@ -85,7 +98,16 @@ def build_dashboard_stats() -> dict:
         'n_a_venir': n_a_venir,
         'n_tips': n_tips,
         'n_gagnes': n_gagnes,
-        'taux_tips': round(100 * n_gagnes / n_tips) if n_tips else None,
+        # Sous le seuil, aucun taux n'est publié : c'est la règle que suit
+        # déjà l'API publique, et il n'y a pas de raison que l'admin lise un
+        # chiffre que le reste du site refuse d'afficher.
+        'taux_tips': (round(100 * n_gagnes / n_tips)
+                      if n_tips >= MIN_ECHANTILLON_TAUX else None),
+        'n_tips_insuffisant': n_tips < MIN_ECHANTILLON_TAUX,
+        'n_filet': n_filet,
+        'n_filet_gagnes': n_filet_gagnes,
+        'taux_filet': (round(100 * n_filet_gagnes / n_filet)
+                       if n_filet >= MIN_ECHANTILLON_TAUX else None),
         'n_msg_actifs': n_msg_actifs,
         'n_msg_24h': n_msg_24h,
         'n_inscrits_7j': n_inscrits_7j,

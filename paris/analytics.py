@@ -17,8 +17,7 @@ _SKIP_PREFIXES = (
     '/sw.js',
     '/manifest',
     '/favicon',
-    '/api/v1/sync',
-    '/api/v1/health',
+    '/api/',
 )
 
 

@@ -79,33 +79,40 @@ def _pourquoi(
     niveau: str,
     contexte: Any | None,
     analyse: Any | None,
+    explication: str = '',
 ) -> str:
-    lib = (libelle or '').lower()
-    fam = (famille or '').lower()
+    """Le « pourquoi » du moteur, ou rien d'inventé.
+
+    Cette fonction choisissait auparavant une phrase par mots-clés dans le
+    libellé, et la servait aux comptes Premium sous le titre « Pourquoi ce
+    tip ». Deux de ces phrases affirmaient quelque chose que rien n'avait
+    vérifié : « Marché + modèle alignés sur … » prétendait un accord entre
+    cote et calcul, et « Historique du duel cohérent avec ce scénario »
+    une cohérence que l'app ne mesure pas. Pendant ce temps, le champ
+    `explication` du moteur était jeté à l'import.
+
+    Désormais : l'explication du moteur d'abord ; à défaut, une phrase
+    strictement factuelle tirée du contexte que le moteur a lui-même fourni
+    ou de son score modal ; et si l'on n'a rien, on le dit.
+    """
+    explication = _txt(explication)
+    if explication:
+        return _phrase(explication)
+
     tendance = _txt(getattr(contexte, 'tendance_buts', None) if contexte else '')
     h2h = _txt(getattr(contexte, 'confrontations', None) if contexte else '')
-    meteo = _txt(getattr(contexte, 'a_savoir', None) if contexte else '')
+    lib = (libelle or '').lower()
+    fam = (famille or '').lower()
 
-    if 'but' in lib or 'total' in fam:
-        if tendance:
-            return tendance
-        if any(k in h2h.lower() for k in ('serré', 'nul', 'équilibr', 'peu de but')):
-            return 'Confrontations récentes plutôt contenues.'
-        if any(k in meteo.lower() for k in ('pluie', 'orage', 'neige', 'vent')):
-            return 'Conditions qui peuvent freiner le rythme.'
-        return f'Marché + modèle alignés sur « {libelle} ».'
-    if 'ne perd pas' in lib or 'double' in fam or 'gagne' in lib or fam == '1x2':
-        if h2h:
-            return 'Historique du duel cohérent avec ce scénario.'
-        return f'Probabilités 1X2 en faveur de « {libelle} ».'
-    if niveau == 'filet':
-        return 'Couverture large (souvent ≥ 1 but) pour sécuriser le ticket.'
+    # Repli : uniquement du factuel, repris du contexte publié par le moteur.
+    if ('but' in lib or 'total' in fam) and tendance:
+        return tendance
     score = _txt(getattr(analyse, 'score_probable', '')) if analyse else ''
     if score:
-        return f'Score modal estimé {score}.'
+        return f'Score le plus probable estimé à {score}.'
     if h2h:
         return h2h
-    return f'Scénario retenu : « {libelle} ».'
+    return 'Le moteur n’a pas publié d’explication pour ce tip.'
 
 
 def _lecture_cotes(analyse: Any | None, domicile: str, exterieur: str) -> str:
@@ -152,6 +159,12 @@ def justifier_option(
         if not isinstance(option, dict)
         else option.get('probabilite')
     )
+    # Le « pourquoi » vient du moteur. L'app ne le fabrique plus.
+    explication = (
+        getattr(option, 'explication', None)
+        if not isinstance(option, dict)
+        else option.get('explication')
+    ) or ''
 
     titre = f'{_niv_label(niveau or "")} · {libelle}'
     accroche = _accroche(
@@ -219,6 +232,7 @@ def justifier_option(
             niveau=niveau or '',
             contexte=contexte,
             analyse=analyse,
+            explication=explication,
         ),
         'crosshair',
     ))

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from paris.models import Analyse, Competition, Contexte, Cote, Equipe, Match, Option
@@ -244,6 +245,64 @@ def _upsert_equipe(e: dict[str, Any]) -> Equipe:
     return eq
 
 
+def _a_un_resultat(match: Match) -> bool:
+    return match.buts_dom is not None and match.buts_ext is not None
+
+
+def _remplacer_options(analyse: Analyse, options: list[dict[str, Any]]) -> int:
+    """Aligne les options sur celles du moteur, sans rien détruire d'utile.
+
+    L'import faisait `analyse.options.all().delete()` avant de recréer. Or
+    `VoteOption.option` est en CASCADE : chaque import effaçait donc **tous
+    les votes de consensus** des utilisateurs, toutes les deux heures. La
+    fonctionnalité « comparer le consensus à la prédiction » ne pouvait pas
+    fonctionner.
+
+    On met donc à jour par code, comme le fait déjà `calculer_analyses`, et
+    on ne supprime que les options encore en attente que le moteur ne publie
+    plus. Un règlement déjà acquis n'est jamais réécrit : il appartient au
+    bilan.
+    """
+    n = 0
+    vus: set[str] = set()
+    existantes = {o.code: o for o in analyse.options.all()}
+    for o in options:
+        code = o.get('code')
+        if not code:
+            continue
+        vus.add(code)
+        champs = {
+            'famille': o.get('famille') or '',
+            'libelle': o.get('libelle') or '',
+            'probabilite': o['probabilite'],
+            'cote_juste': o['cote_juste'],
+            'niveau': o.get('niveau') or 'detail',
+            'origine': o.get('origine') or 'calcul',
+            # Publiés par le moteur, et jusqu'ici jetés.
+            'explication': (o.get('explication') or '')[:300],
+            'confiance': o.get('confiance'),
+            'probabilite_brute': o.get('p_brute'),
+            'calibree': bool(o.get('calibree')),
+        }
+        ancienne = existantes.get(code)
+        if ancienne is None:
+            Option.objects.create(analyse=analyse, code=code,
+                                  resultat=o.get('resultat') or 'attente',
+                                  **champs)
+            n += 1
+            continue
+        for k, v in champs.items():
+            setattr(ancienne, k, v)
+        # Un résultat acquis ne se réécrit pas depuis un instantané.
+        if ancienne.resultat == 'attente':
+            ancienne.resultat = o.get('resultat') or 'attente'
+        ancienne.save(update_fields=[*champs, 'resultat'])
+        n += 1
+    # Ce que le moteur ne propose plus, et qui n'a pas encore été réglé.
+    analyse.options.filter(resultat='attente').exclude(code__in=vus).delete()
+    return n
+
+
 @transaction.atomic
 def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
     """Upsert snapshot (compétitions, équipes, matchs, cotes, analyses)."""
@@ -258,7 +317,14 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
         'analyses': 0,
         'options': 0,
         'contextes': 0,
+        'analyses_perimees': 0,
+        'votes_preserves': 0,
     }
+
+    # Quand le moteur a calculé, pas quand on l'a importé. `calcule_le` était
+    # en `auto_now` : une analyse de trois jours paraissait fraîche de deux
+    # heures sur un champ dont le nom promet la date de calcul.
+    calcule_le = parse_datetime(data.get('exporte_le') or '') or timezone.now()
 
     for c in data.get('competitions') or []:
         sid = c.get('sofascore_id')
@@ -312,11 +378,17 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
             buts_ext=m.get('buts_ext'),
             buts_dom_mt=m.get('buts_dom_mt'),
             buts_ext_mt=m.get('buts_ext_mt'),
+            ligne_totaux=m.get('ligne_totaux'),
+            cle_moteur=m.get('cle_moteur') or f'snapshot:{sid}',
         )
         stats['matchs'] += 1
 
-        # Remplace les cotes exportées (évite les doublons)
-        if m.get('cotes') is not None:
+        # Remplace les cotes exportées (évite les doublons).
+        # Une liste VIDE n'est pas une mise à jour : le moteur dit seulement
+        # qu'il n'a pas de cote pour ce match. Effacer les anciennes tout en
+        # conservant l'analyse laissait 66 matchs sur 396 avec des tips
+        # affichés comme courants et plus aucune cote derrière.
+        if m.get('cotes'):
             match.cotes.all().delete()
             for c in m['cotes']:
                 releve = parse_datetime(c.get('releve_le') or '') or coup
@@ -364,23 +436,24 @@ def importer_snapshot(data: dict[str, Any]) -> dict[str, int]:
                     'marge_marche': ana.get('marge_marche') or 0,
                     'residu': ana.get('residu') or 0,
                     'version_moteur': ana.get('version_moteur') or VERSION_MOTEUR,
+                    # Verdicts du moteur, repris tels quels plutôt que
+                    # recalculés avec les seuils de l'app.
+                    'douteuse': bool(ana.get('douteuse')),
+                    'source_cotes': (ana.get('source_cotes') or '')[:40],
+                    'exposition_lot': ana.get('exposition_lot'),
+                    'calcule_le': calcule_le,
                 },
             )
             stats['analyses'] += 1
-            analyse.options.all().delete()
-            for o in ana.get('options') or []:
-                Option.objects.create(
-                    analyse=analyse,
-                    famille=o['famille'],
-                    code=o['code'],
-                    libelle=o['libelle'],
-                    probabilite=o['probabilite'],
-                    cote_juste=o['cote_juste'],
-                    niveau=o.get('niveau') or 'detail',
-                    origine=o.get('origine') or 'calcul',
-                    resultat=o.get('resultat') or 'attente',
-                )
-                stats['options'] += 1
+            stats['options'] += _remplacer_options(analyse, ana.get('options') or [])
+        elif not _a_un_resultat(match):
+            # Le moteur ne publie plus d'analyse pour ce match : la précédente
+            # n'est plus courante. La garder affichait une analyse orpheline,
+            # invérifiable et impossible à rafraîchir. On ne touche pas à celles
+            # des matchs déjà joués : leur bilan, lui, est acquis.
+            supprimees = Analyse.objects.filter(match=match).delete()[0]
+            if supprimees:
+                stats['analyses_perimees'] = stats.get('analyses_perimees', 0) + 1
 
         if match.statut == 'termine':
             regler_match(match)
@@ -408,6 +481,8 @@ def _upsert_match(
     buts_ext,
     buts_dom_mt,
     buts_ext_mt,
+    ligne_totaux=None,
+    cle_moteur='',
 ) -> Match:
     """
     Upsert match par sofascore_id, sinon par (domicile, exterieur, coup_d'envoi).
@@ -428,6 +503,11 @@ def _upsert_match(
         'buts_dom_mt': buts_dom_mt,
         'buts_ext_mt': buts_ext_mt,
         'sofascore_id': sid,
+        # Le seuil de buts réellement coté : 35 % des rencontres ne sont pas
+        # cotées à 2,5, et l'ignorer faisait lire un prix sur 3,5 comme un
+        # prix sur 2,5.
+        'ligne_totaux': ligne_totaux,
+        'cle_moteur': cle_moteur,
     }
 
     by_sid = Match.objects.filter(sofascore_id=sid).first()

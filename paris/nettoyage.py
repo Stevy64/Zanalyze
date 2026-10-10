@@ -90,22 +90,22 @@ def nettoyer_doublons() -> dict[str, int]:
                     _fusionner_matchs(garder, m)
                     stats['matchs_doublons'] += 1
 
-    # 2) Affiches absurdes : Rome – Le Mans alors que Rome – Inter existe.
-    for m in list(Match.objects.select_related('domicile', 'exterieur', 'competition')):
-        if _cle_club(m.exterieur) != 'le-mans' and 'le-mans' not in (m.exterieur.slug or ''):
-            continue
-        if m.competition.code not in ('SA', 'UCL', 'UEL', 'CI'):
-            continue
-        jumeau = Match.objects.filter(
-            competition=m.competition,
-            coup_denvoi=m.coup_denvoi,
-            domicile=m.domicile,
-        ).exclude(pk=m.pk).select_related('exterieur')
-        for j in jumeau:
-            if _cle_club(j.exterieur) == 'inter' or 'inter' in j.exterieur.slug:
-                _fusionner_matchs(j, m)
-                stats['matchs_absurdes'] += 1
-                break
+    # 2) Correctif ponctuel RETIRÉ le 10 octobre 2026.
+    #
+    # Il fusionnait « Rome – Le Mans » dans « Rome – Inter » en reconnaissant
+    # les clubs par leur nom, dans quatre compétitions nommées en dur. C'était
+    # un pansement sur le bug d'identité de la v3.1 : l'identifiant ESPN de Le
+    # Mans valait l'identifiant SofaScore de l'Inter, et une colonne unique
+    # partagée faisait hériter l'Inter du slug « le-mans ».
+    #
+    # Le moteur v4 supprime la cause : l'identité d'un club vient de son nom
+    # normalisé, et les identifiants de fournisseurs vivent chacun dans leur
+    # colonne. Le pansement est devenu une règle permanente qui détruirait une
+    # vraie rencontre le jour où Le Mans jouerait l'une de ces compétitions —
+    # sans trace, et sur la seule base d'un nom de club.
+    #
+    # L'étape 1 ci-dessus (doublons à clé canonique identique) couvre le cas
+    # général, sans nommer personne.
 
     # 3) Fusion d'équipes à **même clé canonique** uniquement (pas d'inclusion
     # floue : Paris FC ≠ PSG).

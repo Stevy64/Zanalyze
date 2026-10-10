@@ -1,10 +1,11 @@
-from datetime import datetime, time as dt_time, timezone as dt_timezone
+from datetime import datetime, time as dt_time, timezone as dt_timezone, timedelta
 import hashlib
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -14,12 +15,13 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework import status as http_status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from paris.models import (
     Competition, Equipe, Match, MessageChat, Option, Profil, PronosticPremium,
-    PropositionParis, ReglageSite, Vote, VoteOption,
+    PropositionParis, ReglageSite, Vote, VoteOption, PaiementPremium,
 )
 from paris.engine_sync import version_moteur_active
 from paris.reglement import regler_match
@@ -56,16 +58,13 @@ def _payload_vip_public(user=None):
     renouvellement = False
     if user is not None and getattr(user, 'is_authenticated', False):
         pseudo = (getattr(user, 'username', None) or '').strip() or None
-        profil = getattr(user, 'profil', None)
-        if profil is None:
-            try:
-                from paris.models import Profil
-                profil, _ = Profil.objects.get_or_create(user=user)
-            except Exception:  # noqa: BLE001
-                profil = None
-        if profil is not None:
-            renouvellement = bool(profil.a_deja_ete_premium)
+        # Lire l'état durable : la relation en cache peut précéder une activation.
+        profil, _ = Profil.objects.get_or_create(user=user)
+        renouvellement = bool(profil.a_deja_ete_premium)
+    from paris.premium_paiement import pret
     return {
+        'vip_prix_xaf': cfg.vip_prix_xaf,
+        'vip_paiement_disponible': bool(cfg.vip_prix_xaf and pret()),
         'whatsapp_vip_url': cfg.lien_whatsapp_vip(
             pseudo=pseudo, renouvellement=renouvellement,
         ),
@@ -147,11 +146,27 @@ def _filtrer_matchs(qs, params):
         qs = qs.filter(competition__pays__iexact=pays)
     statut = params.get('statut')
     if statut:
-        vals = [s.strip() for s in statut.split(',') if s.strip()]
-        if len(vals) == 1:
-            qs = qs.filter(statut=vals[0])
-        elif vals:
-            qs = qs.filter(statut__in=vals)
+        vals = {s.strip() for s in statut.split(',') if s.strip()}
+        # Le filtre portait sur la colonne brute, alors que la réponse renvoie
+        # `statut_effectif`, qui requalifie « à venir » en « en cours » dès que
+        # le coup d'envoi est passé (le snapshot ne bascule que toutes les
+        # ~2 h). Résultat : `?statut=a_venir` renvoyait des matchs que la même
+        # réponse étiquetait « en cours », et `?statut=en_cours` en ratait.
+        #
+        # On aligne donc le filtre sur ce qui est affiché : « en cours »
+        # ramasse aussi les « à venir » déjà commencés, et « à venir » les
+        # exclut.
+        maintenant = timezone.now()
+        condition = Q(pk__in=[])
+        if 'en_cours' in vals:
+            condition |= Q(statut='en_cours') | Q(
+                statut='a_venir', coup_denvoi__lte=maintenant)
+        if 'a_venir' in vals:
+            condition |= Q(statut='a_venir', coup_denvoi__gt=maintenant)
+        autres = vals - {'a_venir', 'en_cours'}
+        if autres:
+            condition |= Q(statut__in=sorted(autres))
+        qs = qs.filter(condition)
     depuis = params.get('depuis')
     if depuis:
         d = parse_date(depuis)
@@ -171,16 +186,19 @@ class CompetitionList(CacheETagMixin, APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        # Garantit les filtres Europe (UCL / UEL) même avant le prochain import.
-        for code, nom, ordre in (
-            ('UCL', 'Ligue des champions', 10),
-            ('UEL', 'Ligue Europa', 11),
+        # Les filtres de sélections restent découvrables entre deux éditions.
+        for code, nom, pays, ordre in (
+            ('WC', 'Coupe du monde', 'Sélections internationales', 1),
+            ('CAN', 'Coupe d’Afrique des nations', 'Sélections internationales', 2),
+            ('UNL', 'Ligue des nations', 'Sélections internationales', 3),
+            ('UCL', 'Ligue des champions', 'Europe', 10),
+            ('UEL', 'Ligue Europa', 'Europe', 11),
         ):
             Competition.objects.get_or_create(
                 code=code,
                 defaults={
                     'nom': nom,
-                    'pays': 'Europe',
+                    'pays': pays,
                     'ordre': ordre,
                     'actif': True,
                 },
@@ -346,6 +364,65 @@ class Info(CacheETagMixin, APIView):
         })
 
 
+class PremiumCheckout(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from paris.premium_paiement import PaiementIndisponible, creer_lien, pret
+
+        cfg = ReglageSite.get_solo()
+        if cfg.vip_prix_xaf <= 0 or not pret():
+            return Response({'detail': 'Tarif ou paiement mobile indisponible.'},
+                            status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
+        with transaction.atomic():
+            profil, _ = Profil.objects.get_or_create(user=request.user)
+            Profil.objects.select_for_update().get(pk=profil.pk)
+            recent = (PaiementPremium.objects.filter(
+                user=request.user,
+                cree_le__gte=timezone.now() - timedelta(minutes=15),
+                statut__in=('initialisation', 'en_attente'),
+            ).order_by('-cree_le').first())
+            if recent and recent.lien_paiement:
+                return Response({'reference': str(recent.reference),
+                                 'lien': recent.lien_paiement,
+                                 'statut': recent.statut})
+            if recent:
+                return Response({'detail': 'Création du paiement en cours. Réessaie dans un instant.'},
+                                status=http_status.HTTP_409_CONFLICT)
+            achat = PaiementPremium.objects.create(
+                user=request.user, montant_xaf=cfg.vip_prix_xaf,
+            )
+        retour = request.build_absolute_uri('/?premium=' + str(achat.reference))
+        try:
+            lien = creer_lien(achat, retour)
+        except PaiementIndisponible as exc:
+            achat.statut = 'echoue'
+            achat.save(update_fields=['statut', 'maj_le'])
+            return Response({'detail': str(exc)},
+                            status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
+        achat.lien_paiement = lien
+        achat.statut = 'en_attente'
+        achat.save(update_fields=['lien_paiement', 'statut', 'maj_le'])
+        return Response({'reference': str(achat.reference), 'lien': lien,
+                         'statut': achat.statut}, status=http_status.HTTP_201_CREATED)
+
+
+class PremiumPaymentStatus(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, reference):
+        from paris.premium_paiement import PaiementIndisponible, verifier_et_activer
+
+        achat = get_object_or_404(PaiementPremium, reference=reference, user=request.user)
+        try:
+            etat = verifier_et_activer(achat)
+        except PaiementIndisponible:
+            return Response({'reference': str(reference), 'statut': achat.statut,
+                             'detail': 'Vérification momentanément indisponible.'},
+                            status=http_status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({'reference': str(reference), 'statut': etat})
+
+
 class SyncEngine(APIView):
     """Tire le snapshot Engine (scores / statuts / bilans) vers la PWA."""
     permission_classes = [AllowAny]
@@ -507,7 +584,7 @@ def _propositions_qs(match):
     return (
         PropositionParis.objects
         .filter(match=match)
-        .select_related('auteur')
+        .select_related('auteur', 'match')
         .annotate(
             likes=Count('votes', filter=Q(votes__choix='like')),
             dislikes=Count('votes', filter=Q(votes__choix='dislike')),
@@ -577,9 +654,9 @@ class PropositionListCreate(APIView):
 
     def post(self, request, pk):
         match = get_object_or_404(Match, pk=pk)
-        if match.statut not in ('a_venir', 'en_cours'):
+        if match.statut != 'a_venir' or match.coup_denvoi <= timezone.now():
             return Response(
-                {'detail': 'Proposition possible uniquement avant la fin du match.'},
+                {'detail': 'Proposition possible uniquement avant le coup d’envoi.'},
                 status=400,
             )
         ser = PropositionCreateSerializer(data=request.data)
@@ -846,6 +923,15 @@ class PronosticMatch(APIView):
             'gagne': prono.gagne,
             'progression': progression_utilisateur(request.user),
         })
+
+
+class ClassementPropositions(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from paris.propositions_classement import classement_propositions
+        user = request.user if request.user.is_authenticated else None
+        return Response(classement_propositions(user))
 
 
 class ClassementPremium(APIView):

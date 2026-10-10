@@ -4,6 +4,8 @@ from paris import views
 
 urlpatterns = [
     path('competitions/', views.CompetitionList.as_view()),
+    path('premium/checkout/', views.PremiumCheckout.as_view()),
+    path('premium/paiements/<uuid:reference>/', views.PremiumPaymentStatus.as_view()),
     path('matchs/', views.MatchList.as_view()),
     path('matchs/<int:pk>/', views.MatchDetail.as_view()),
     path('matchs/<int:pk>/resultat/', views.MatchResultat.as_view()),
@@ -12,6 +14,7 @@ urlpatterns = [
     path('matchs/<int:pk>/options/<int:opt_id>/vote/', views.OptionVote.as_view()),
     path('matchs/<int:pk>/pronostic/', views.PronosticMatch.as_view()),
     path('classement/', views.ClassementPremium.as_view()),
+    path('classement/propositions/', views.ClassementPropositions.as_view()),
     path('equipes/<int:pk>/logo/', views.EquipeLogo.as_view()),
     path('equipes/<int:pk>/infos/', views.EquipeInfos.as_view()),
     path('historique/', views.Verification.as_view()),

@@ -30,3 +30,6 @@ wheels/
 htmlcov/
 dist/
 build/
+
+# Paquet Engine validé, livré avec la web app pour installation hors réseau.
+!vendor/*.whl

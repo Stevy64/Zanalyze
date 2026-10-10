@@ -74,3 +74,17 @@ class EngineSyncApiTests(TestCase):
             r = self.client.get('/api/v1/info/')
         self.assertEqual(r.status_code, 200)
         self.assertIn('engine', r.data)
+
+    @override_settings(ZANALYZ_SYNC_LIVE='0')
+    def test_import_auto_desactive_sans_tache_de_fond(self):
+        with patch('paris.engine_sync.threading.Thread') as thread:
+            self.assertFalse(engine_sync.declencher_refresh_async())
+            thread.assert_not_called()
+
+    @override_settings(ZANALYZ_SYNC_LIVE='1')
+    def test_import_auto_attend_apres_echec(self):
+        from django.utils import timezone
+        engine_sync._ecrire_meta({'importe_le_echec': timezone.now().isoformat(), 'ok': False})
+        with patch('paris.engine_sync.threading.Thread') as thread:
+            self.assertFalse(engine_sync.declencher_refresh_async())
+            thread.assert_not_called()

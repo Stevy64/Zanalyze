@@ -1,5 +1,6 @@
 const PEU_FIABLES = new Set(['BTTS', 'Une équipe marque']);
 const LS_FILTRE = 'zanalyz.filtre';
+const LS_FAVORIS = 'zanalyz.favoris.matchs';
 const LS_MASQUEES = 'zanalyz.masquees';
 const LS_REFRESH = 'zanalyz.refresh';
 const LS_DATE = 'zanalyz.filtreDate';
@@ -313,7 +314,7 @@ function drapeauPays(pays, cls) {
 }
 
 const ORDRE_PAYS_FILTRE = [
-  'Angleterre', 'Espagne', 'Allemagne', 'France', 'Italie', 'Portugal',
+  'Sélections internationales',   'Angleterre', 'Espagne', 'Allemagne', 'France', 'Italie', 'Portugal',
 ];
 
 function parseFiltre(filtre) {
@@ -364,14 +365,28 @@ async function getJSON(url, { timeoutMs = 10000 } = {}) {
   }
 }
 
-function lireCacheMatchs(cle) {
+// Durée de vie du cache de listes. `savedAt` était écrit mais jamais relu :
+// après une semaine hors ligne, l'utilisateur voyait les matchs de la semaine
+// passée avec leurs probabilités, présentés comme la liste du jour — et le
+// statut figé dans le JSON mis en cache empêchait la correction serveur de
+// s'appliquer. Un match déjà joué pouvait donc s'afficher « à venir ».
+const CACHE_MATCHS_TTL_MS = 30 * 60 * 1000;
+
+function cacheMatchsAgeMs(entry) {
+  const t = Date.parse((entry && entry.savedAt) || '');
+  return Number.isFinite(t) ? Math.max(0, Date.now() - t) : Infinity;
+}
+
+function lireCacheMatchs(cle, { ignorerAge = false } = {}) {
   try {
     const raw = localStorage.getItem(LS_MATCHS);
     if (!raw) return null;
     const bag = JSON.parse(raw);
     const entry = bag && bag[cle];
     if (!entry || !Array.isArray(entry.results)) return null;
-    return entry;
+    const age = cacheMatchsAgeMs(entry);
+    if (!ignorerAge && age > CACHE_MATCHS_TTL_MS) return null;
+    return { ...entry, perime: age > CACHE_MATCHS_TTL_MS, ageMs: age };
   } catch (_) {
     return null;
   }
@@ -379,7 +394,10 @@ function lireCacheMatchs(cle) {
 
 /** Dernière liste matchs en cache (clé exacte ou plus récente). */
 function lireCacheMatchsFlexible(cle) {
-  const exact = lireCacheMatchs(cle);
+  // Repli hors ligne : ici on accepte le périmé — mieux vaut une liste datée
+  // qu'un écran vide — mais l'entrée porte `perime`, pour que l'interface
+  // puisse l'annoncer plutôt que de le faire passer pour frais.
+  const exact = lireCacheMatchs(cle, { ignorerAge: true });
   if (exact && exact.results && exact.results.length) return exact;
   try {
     const bag = JSON.parse(localStorage.getItem(LS_MATCHS) || '{}') || {};
@@ -484,7 +502,41 @@ function zanalyz() {
     drapeauComp,
     drapeauPays,
     fmtJour,
+    fmtCache,
     TYPES_PROPOSITION,
+
+    /** Fraîcheur du moteur, telle que l'API la rapporte.
+     *
+     * `etat_sync()` fournit depuis toujours `exporte_le`, `importe_le`,
+     * `dernier_ok` et `dernier_detail`, l'API les expose, et le client les
+     * rangeait dans `engineMeta`… que rien n'affichait. Quand l'import
+     * échouait, l'app servait des analyses périmées sans aucun signe. */
+    get etatMoteur() {
+      const m = this.engineMeta;
+      if (!m) return null;
+      const quand = m.exporte_le || m.importe_le || '';
+      const ok = m.dernier_ok !== false;
+      if (!ok) {
+        const detail = String(m.dernier_detail || '').slice(0, 120);
+        return {
+          ok: false,
+          texte: 'Les données du moteur n’ont pas pu être mises à jour'
+            + (quand ? ' — dernières reçues le ' + fmtCache(quand) : '')
+            + (detail ? ' (' + detail + ')' : '') + '.',
+        };
+      }
+      // Au-delà de six heures, le cycle de deux heures a manqué trois tours.
+      const t = Date.parse(quand);
+      const vieux = Number.isFinite(t) && (Date.now() - t) > 6 * 3600 * 1000;
+      if (vieux) {
+        return {
+          ok: false,
+          texte: 'Données du moteur datées du ' + fmtCache(quand)
+            + ' — le rafraîchissement semble arrêté.',
+        };
+      }
+      return { ok: true, texte: '' };
+    },
     logoUrl(eq) {
       if (!eq) return '';
       // Préfère une URL CDN (navigateur) — le proxy serveur échoue souvent hors whitelist.
@@ -500,6 +552,9 @@ function zanalyz() {
     competitionsAll: [],
     matchs: [],
     matchsPasses: [],
+    favoris: (() => { try { return JSON.parse(localStorage.getItem(LS_FAVORIS) || '[]').map(Number).filter(Number.isInteger); } catch (_) { return []; } })(),
+    favorisOnly: false,
+    cotesObservees: {},
     filtre: localStorage.getItem(LS_FILTRE) || '',
     filtreDate: (() => {
       const auj = dateLocaleISO(new Date());
@@ -531,6 +586,7 @@ function zanalyz() {
     chatChargement: false,
     chatErr: '',
     chatSince: null,
+    chatNewBelow: 0,
     chatImage: null,
     chatImagePreview: '',
     chatPieceKind: '',
@@ -552,11 +608,20 @@ function zanalyz() {
     authShowPass: false,
     whatsappVipUrl: '',
     vipTarifLibelle: 'Premium Zanalyze',
+    vipPrixXaf: 0,
+    vipPaiementDisponible: false,
+    premiumBusy: false,
+    premiumErr: '',
+    premiumReference: sessionStorage.getItem('zanalyz.premium.reference') || '',
     sheetVip: false,
     dialog: null,
     _dialogResolve: null,
     horsLigne: false,
     engineMeta: null,
+    // Le cache navigateur peut servir une liste datée : ces deux champs
+    // permettent de l'annoncer au lieu de la faire passer pour courante.
+    cachePerime: false,
+    cacheDate: '',
     syncBusy: false,
     dernierRafraichissement: localStorage.getItem(LS_REFRESH) ? fmtCache(localStorage.getItem(LS_REFRESH)) : '',
     swWaiting: false,
@@ -614,6 +679,10 @@ function zanalyz() {
     classement: [],
     classementMoi: null,
     classementChargement: false,
+    classementMode: 'propositions',
+    classementPropositions: [],
+    classementPropositionsMoi: null,
+    classementPropositionsChargement: false,
     _progression: null,
     sheetClassement: false,
     salonOnglet: 'chat',
@@ -653,6 +722,15 @@ function zanalyz() {
       this.enregistrerSW();
       try {
         await this.chargerInfo();
+        const retourPremium = new URLSearchParams(window.location.search).get('premium');
+        if (retourPremium && /^[0-9a-f-]{36}$/i.test(retourPremium)) {
+          this.premiumReference = retourPremium;
+          sessionStorage.setItem('zanalyz.premium.reference', retourPremium);
+          history.replaceState(history.state, '', window.location.pathname);
+        }
+        if (this.premiumReference && this.authentifie) {
+          await this.verifierPaiementPremium();
+        }
         // Import snapshot en arrière-plan : ne doit jamais bloquer le premier affichage.
         this.syncEngine(false).then((r) => {
           if (r && r.ok && !r.skipped && this.page === 'matchs') {
@@ -661,6 +739,9 @@ function zanalyz() {
         }).catch(() => {});
         await this.chargerCompetitions();
         await this.routeData();
+        if (this.premiumReference && !this.authentifie) {
+          this.ouvrirAuth('Connecte-toi pour confirmer ton paiement Premium.');
+        }
         this.demarrerUnreadPoll();
         if (this._ouvrirComposAuDemarrage) {
           this._ouvrirComposAuDemarrage = false;
@@ -775,6 +856,8 @@ function zanalyz() {
         if (this._progression) this.classementMoi = this._progression;
         this.whatsappVipUrl = (data && data.whatsapp_vip_url) || '';
         this.vipTarifLibelle = (data && data.vip_tarif_libelle) || 'Premium Zanalyze';
+        this.vipPrixXaf = Number(data && data.vip_prix_xaf) || 0;
+        this.vipPaiementDisponible = !!(data && data.vip_paiement_disponible);
         this.vipExpireLe = (data && data.vip_expire_le) || null;
         if (data && data.version_moteur) this.moteur = data.version_moteur;
         if (data && data.engine) this.engineMeta = data.engine;
@@ -1119,6 +1202,54 @@ function zanalyz() {
       if (!this.whatsappVipUrl) this.chargerInfo();
     },
 
+    async payerPremium() {
+      if (this.premiumBusy) return;
+      this.premiumBusy = true;
+      this.premiumErr = '';
+      try {
+        const res = await fetch('/api/v1/premium/checkout/', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrf(), Accept: 'application/json' },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.lien) throw new Error(fmtApiError(data, 'Paiement indisponible.'));
+        this.premiumReference = data.reference;
+        sessionStorage.setItem('zanalyz.premium.reference', data.reference);
+        window.location.assign(data.lien);
+      } catch (error) {
+        this.premiumErr = error.message || 'Paiement indisponible.';
+        this.premiumBusy = false;
+      }
+    },
+
+    async verifierPaiementPremium() {
+      if (!this.premiumReference || this.premiumBusy) return;
+      this.premiumBusy = true;
+      this.premiumErr = '';
+      try {
+        const ref = encodeURIComponent(this.premiumReference);
+        const res = await fetch('/api/v1/premium/paiements/' + ref + '/', {
+          credentials: 'same-origin', headers: { Accept: 'application/json' },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(fmtApiError(data, 'Vérification indisponible.'));
+        if (data.statut === 'paye') {
+          sessionStorage.removeItem('zanalyz.premium.reference');
+          this.premiumReference = '';
+          await this.chargerInfo();
+          this.fermerVipGate();
+        } else {
+          this.premiumErr = 'Paiement encore en attente. Vérifie de nouveau après confirmation SingPay.';
+          this.ouvrirVipGate('paiement');
+        }
+      } catch (error) {
+        this.premiumErr = error.message || 'Vérification indisponible.';
+        this.ouvrirVipGate('paiement');
+      } finally {
+        this.premiumBusy = false;
+      }
+    },
+
     fermerVipGate() {
       this.sheetVip = false;
       if (!this.sheetCompos && !this.sheetApercu && !this.sheetAuth && !this.sheetClub && !this.sheetInstall && !this.sheetJustif && !this.sheetCgu) {
@@ -1359,6 +1490,8 @@ function zanalyz() {
       const cachedExact = lireCacheMatchs(cacheKey);
       if (cachedExact && cachedExact.results.length) {
         this.matchs = cachedExact.results;
+        this.cachePerime = !!cachedExact.perime;
+        this.cacheDate = cachedExact.savedAt || '';
         this.chargement = false;
       } else {
         this.chargement = !garderListe;
@@ -1374,16 +1507,22 @@ function zanalyz() {
           if (offline && estNavigateurHorsLigne()) this.horsLigne = true;
           // Jamais de cache « flexible » si une date est choisie (évite Hier ≠ matchs affichés).
           const cached = this.filtreDate
-            ? lireCacheMatchs(cacheKey)
-            : (lireCacheMatchs(cacheKey) || lireCacheMatchsFlexible(cacheKey));
+            ? lireCacheMatchs(cacheKey, { ignorerAge: true })
+            : (lireCacheMatchs(cacheKey)
+               || lireCacheMatchsFlexible(cacheKey));
           if (cached && cached.results.length) {
             this.matchs = cached.results;
+            // Ce que l'utilisateur regarde n'est plus frais : il doit le voir.
+            this.cachePerime = !!cached.perime;
+            this.cacheDate = cached.savedAt || '';
           } else if (!garderListe && !(this.matchs && this.matchs.length)) {
             this.matchs = [];
           }
           return;
         }
         this.horsLigne = false;
+        this.cachePerime = false;
+        this.cacheDate = '';
         this.noterCache(fromCache);
         let list = (data && data.results) || [];
         // Cache SW parfois figé à [] après un import raté : force un passage réseau.
@@ -1717,13 +1856,63 @@ function zanalyz() {
       return [...map.entries()].map(([pays, comps]) => ({
         pays,
         comps,
-        flagHtml: drapeauComp(comps[0]),
+        flagHtml: pays === 'Sélections internationales' ? icon('trophy') : drapeauComp(comps[0]),
       }));
     },
 
+    estFavori(id) {
+      return this.favoris.includes(Number(id));
+    },
+    toggleFavori(id) {
+      const value = Number(id);
+      if (!Number.isInteger(value)) return;
+      this.favoris = this.estFavori(value)
+        ? this.favoris.filter((item) => item !== value)
+        : [...this.favoris, value].slice(-100);
+      localStorage.setItem(LS_FAVORIS, JSON.stringify(this.favoris));
+    },
+    telechargerRappel(match) {
+      if (!match || !match.id || !match.coup_denvoi) return;
+      const debut = new Date(match.coup_denvoi);
+      if (Number.isNaN(debut.getTime())) return;
+      const fin = new Date(debut.getTime() + 2 * 60 * 60 * 1000);
+      const utc = (date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      const escapeIcs = (value) => String(value || '')
+        .replace(/\\/g, '\\\\').replace(/\n/g, '\\n')
+        .replace(/,/g, '\\,').replace(/;/g, '\\;');
+      const titre = [match.domicile?.nom_court || match.domicile?.nom, match.exterieur?.nom_court || match.exterieur?.nom].join(' - ');
+      const contenu = [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Zanalyze//Rappel match//FR',
+        'BEGIN:VEVENT', 'UID:match-' + match.id + '@zanalyze',
+        'DTSTAMP:' + utc(new Date()), 'DTSTART:' + utc(debut), 'DTEND:' + utc(fin),
+        'SUMMARY:' + escapeIcs(titre),
+        'DESCRIPTION:' + escapeIcs('Suivre le match sur Zanalyze. Horaire susceptible de changer.'),
+        'URL:' + window.location.origin + '/matchs/' + match.id,
+        'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY',
+        'DESCRIPTION:Rappel match Zanalyze', 'END:VALARM',
+        'END:VEVENT', 'END:VCALENDAR', '',
+      ].join('\r\n');
+      const url = URL.createObjectURL(new Blob([contenu], { type: 'text/calendar;charset=utf-8' }));
+      const lien = document.createElement('a');
+      lien.href = url;
+      lien.download = 'zanalyze-match-' + match.id + '.ics';
+      document.body.appendChild(lien);
+      lien.click();
+      lien.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    avisCote(option) {
+      const valeur = Number(this.cotesObservees[option.id]);
+      const juste = Number(option.cote_juste);
+      if (!Number.isFinite(valeur) || valeur < 1.01) return 'Saisis une cote décimale supérieure à 1,00.';
+      if (!Number.isFinite(juste) || juste <= 1) return 'Comparaison indisponible pour cette option.';
+      const ecart = Math.round((valeur / juste - 1) * 100);
+      if (valeur < juste * 1.03) return 'Écart insuffisant : mieux vaut s’abstenir à cette cote.';
+      return 'Cote supérieure à la cote juste de ' + ecart + ' %. Vérifie le marché et les conditions avant de décider.';
+    },
     get groupes() {
       const map = new Map();
-      for (const m of this.matchs) {
+      for (const m of (this.favorisOnly ? this.matchs.filter((item) => this.estFavori(item.id)) : this.matchs)) {
         const cle = dateLocaleISO(m.coup_denvoi);
         if (!cle) continue;
         if (!map.has(cle)) map.set(cle, { cle, label: fmtJour(m.coup_denvoi), matchs: [] });
@@ -1754,15 +1943,24 @@ function zanalyz() {
     get sectionsChances() {
       if (!this.fiche || !this.fiche.analyse) return [];
       const opts = this.fiche.analyse.options;
-      const qui = ['1X2', 'Double chance', 'Handicap'];
-      const buts = ['Total buts', 'BTTS', 'Une équipe marque'];
+      // Le moteur publie neuf familles. « Écart de buts » et « Total d'une
+      // équipe » n'étaient listées nulle part : 1 595 options calculées,
+      // transmises, stockées, et jamais montrées.
+      const qui = ['1X2', 'Double chance', 'Handicap', 'Ecart de buts'];
+      const buts = ['Total buts', 'BTTS', 'Une équipe marque', "Total d'une équipe"];
       const ht = ['Mi-temps'];
+      const connues = new Set([...qui, ...buts, ...ht]);
       const pick = (fams) => opts.filter((o) => fams.includes(o.famille));
-      return [
+      // Filet de sécurité : si le moteur ajoute une famille, elle s'affiche
+      // au lieu de disparaître silencieusement.
+      const autres = opts.filter((o) => !connues.has(o.famille));
+      const sections = [
         { titre: 'Qui gagne', items: pick(qui) },
         { titre: 'Les buts', items: pick(buts) },
         { titre: 'La mi-temps', items: pick(ht) },
       ];
+      if (autres.length) sections.push({ titre: 'Autres marchés', items: autres });
+      return sections;
     },
 
     peuFiable(fam) { return PEU_FIABLES.has(fam); },
@@ -1880,6 +2078,22 @@ function zanalyz() {
         this.gradePremium = this.classementMoi.grade;
       }
     },
+    async chargerClassementPropositions() {
+      this.classementPropositionsChargement = true;
+      try {
+        const { data, ok } = await getJSON('/api/v1/classement/propositions/');
+        if (!ok) return;
+        this.classementPropositions = (data && data.results) || [];
+        this.classementPropositionsMoi = (data && data.moi) || null;
+      } finally {
+        this.classementPropositionsChargement = false;
+      }
+    },
+    choisirClassement(mode) {
+      this.classementMode = mode;
+      if (mode === 'propositions') this.chargerClassementPropositions();
+      else this.chargerClassement();
+    },
     async ouvrirClassement() {
       if (!this.authentifie) {
         this.ouvrirAuth('Connecte-toi pour voir ton challenge et le classement.');
@@ -1890,7 +2104,7 @@ function zanalyz() {
       this.sheetCompos = false;
       this.sheetClassement = true;
       document.body.classList.add('sheet-open');
-      await this.chargerClassement();
+      await this.chargerClassementPropositions();
     },
     fmtConsensus(o) {
       if (!o || o.pct_likes == null) return '—';
@@ -2176,6 +2390,11 @@ function zanalyz() {
           }
           await this.chargerInfo();
           this.demarrerUnreadPoll();
+          if (this.premiumReference) {
+            this.sheetVip = true;
+            document.body.classList.add('sheet-open');
+            await this.verifierPaiementPremium();
+          }
           if (typeof pending === 'function') await pending();
         } else {
           this.authErr = fmtApiError(data, res.status === 403
@@ -2639,6 +2858,10 @@ function zanalyz() {
       if (!el) return;
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
       this._chatStickBottom = dist < 72;
+      if (this._chatStickBottom) {
+        this.chatNewBelow = 0;
+        if (this.page === 'salon') this.marquerSalonLu();
+      }
     },
 
     scrollSalonBas(force) {
@@ -2648,10 +2871,28 @@ function zanalyz() {
         if (force || this._chatStickBottom) {
           el.scrollTop = el.scrollHeight;
           this._chatStickBottom = true;
+          this.chatNewBelow = 0;
         }
       });
     },
 
+    chatShowDay(msg, idx) {
+      if (!msg || !msg.created_at) return false;
+      if (idx === 0) return true;
+      const prev = this.chatMessages[idx - 1];
+      return !prev || new Date(prev.created_at).toDateString() !== new Date(msg.created_at).toDateString();
+    },
+    fmtChatJour(iso) {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      const today = new Date();
+      if (d.toDateString() === today.toDateString()) return "Aujourd’hui";
+      return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    },
+    allerNouveauxChat() {
+      this._chatStickBottom = true;
+      this.scrollSalonBas(true);
+    },
     async chargerChat(opts = {}) {
       if (!this.peutVip) return;
       if (opts.reset) this.chatChargement = true;
@@ -2672,15 +2913,19 @@ function zanalyz() {
         const incoming = data.results || [];
         if (opts.reset || !this.chatSince) {
           this.chatMessages = incoming;
+          this.chatNewBelow = 0;
         } else if (incoming.length) {
           const seen = new Set(this.chatMessages.map((m) => m.id));
           const fresh = incoming.filter((m) => !seen.has(m.id));
-          if (fresh.length) this.chatMessages = this.chatMessages.concat(fresh);
+          if (fresh.length) {
+            this.chatMessages = this.chatMessages.concat(fresh);
+            if (!this._chatStickBottom) this.chatNewBelow += fresh.length;
+          }
         }
         if (this.chatMessages.length) {
           this.chatSince = this.chatMessages[this.chatMessages.length - 1].created_at;
         }
-        if (this.page === 'salon') this.marquerSalonLu();
+        if (this.page === 'salon' && this._chatStickBottom) this.marquerSalonLu();
         this.scrollSalonBas(!!opts.reset);
       } finally {
         this.chatChargement = false;
@@ -2819,7 +3064,7 @@ function zanalyz() {
   };
 }
 
-window.c2b = c2b;
+window.zanalyz = zanalyz;
 document.addEventListener('alpine:init', () => {
-  Alpine.data('c2b', c2b);
+  Alpine.data('zanalyz', zanalyz);
 });

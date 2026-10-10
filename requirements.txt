@@ -11,3 +11,4 @@ psycopg[binary]>=3.2
 fastapi>=0.115.0
 uvicorn>=0.32.0
 redis>=5.0.0
+./vendor/zanalyze_engine-4.0.1-py3-none-any.whl

@@ -4,7 +4,6 @@ from paris.models import (
     Analyse, Competition, Contexte, Match, MessageChat, Option, PronosticPremium,
     PropositionParis,
 )
-from paris.moteur import RESIDU_DOUTEUX
 
 NIVEAUX_LISTE = ('prudente', 'equilibree', 'audacieuse')
 # Nos Zanalyze / historique : tips + recommandée + filet de sécurité
@@ -132,7 +131,7 @@ class OptionListeSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'niveau', 'libelle', 'probabilite', 'resultat',
             'famille', 'code', 'cote_juste', 'origine',
-            'likes', 'dislikes', 'pct_likes', 'mon_vote',
+            'likes', 'dislikes', 'pct_likes', 'mon_vote', 'resultat',
         )
 
     def _c(self, obj):
@@ -197,6 +196,10 @@ class OptionDetailSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'famille', 'code', 'libelle', 'probabilite',
             'cote_juste', 'niveau', 'origine', 'resultat',
+            # Publiés par le moteur. `calibree` à False signale une
+            # probabilité rendue brute, faute de courbe couvrant sa valeur :
+            # ce n'est pas une correction mesurée, et l'écran peut le dire.
+            'explication', 'confiance', 'calibree',
             'likes', 'dislikes', 'pct_likes', 'mon_vote', 'justification',
         )
 
@@ -227,20 +230,21 @@ class OptionDetailSerializer(serializers.ModelSerializer):
 
 
 class AnalyseSerializer(serializers.ModelSerializer):
-    douteuse = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
 
     class Meta:
         model = Analyse
+        # `douteuse` et `source_cotes` sont désormais les verdicts du MOTEUR,
+        # importés tels quels. L'app les recalculait avec ses propres seuils
+        # et pouvait donc contredire le moteur sur la fiabilité de sa propre
+        # analyse. `calcule_le` porte la date du moteur, `importe_le` celle
+        # de la réception.
         fields = (
             'buts_dom_attendus', 'buts_ext_attendus',
             'p1', 'pn', 'p2', 'score_probable', 'profil',
-            'marge_marche', 'residu', 'douteuse',
-            'version_moteur', 'calcule_le', 'options',
+            'marge_marche', 'residu', 'douteuse', 'source_cotes',
+            'version_moteur', 'calcule_le', 'importe_le', 'options',
         )
-
-    def get_douteuse(self, obj):
-        return obj.residu > RESIDU_DOUTEUX
 
     def get_options(self, obj):
         from paris.bilan_acces import filtrer_options_bilan
@@ -368,14 +372,22 @@ class PropositionSerializer(serializers.ModelSerializer):
     mon_vote = serializers.SerializerMethodField()
     pct_likes = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
+    resultat = serializers.SerializerMethodField()
 
     class Meta:
         model = PropositionParis
         fields = (
             'id', 'libelle', 'type', 'confiance', 'auteur', 'created_at',
-            'likes', 'dislikes', 'pct_likes', 'mon_vote',
+            'likes', 'dislikes', 'pct_likes', 'mon_vote', 'resultat',
         )
         read_only_fields = ('id', 'auteur', 'created_at')
+
+    def get_resultat(self, obj):
+        from paris.propositions_classement import resultat_proposition
+        resultat = resultat_proposition(obj)
+        if resultat is None:
+            return None
+        return 'valide' if resultat else 'non_valide'
 
     def get_type(self, obj):
         for code, label in TYPES_PROPOSITION.items():

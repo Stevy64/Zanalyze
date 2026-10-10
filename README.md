@@ -124,3 +124,7 @@ make help                # liste des commandes
 ## Licence / usage
 
 Usage personnel / projet privé. Les données calendrier et clubs proviennent d’APIs tierces ; l’app n’affiche pas leur nom côté utilisateur.
+
+## Moteur partagé
+
+La web app et le service de calcul exécutent le paquet **Zanalyze Engine** livré dans `vendor/`. Voir [la consolidation et les instructions de livraison](docs/moteur-unique.md). Les algorithmes se maintiennent exclusivement dans le dépôt Engine.

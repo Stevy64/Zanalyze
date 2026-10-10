@@ -5,10 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from paris.justification import justifier_option
-from paris.management.commands.apprendre_calibration import (
-    MIN_FAMILLE,
-    apprendre_depuis_options,
-)
 from paris.moteur import CALIBRATION_DEFAUT, corriger, invalider_calibration_cache
 
 
@@ -81,32 +77,11 @@ def test_justifier_filet_mentionne_plan_b():
     assert 'filet' in blob or 'repli' in blob or 'sécurité' in blob
 
 
-def test_apprendre_ne_modifie_pas_si_echantillon_faible():
-    options = [
-        SimpleNamespace(code='OV_1.5', origine='calcul', probabilite=0.75, resultat='gagne'),
-        SimpleNamespace(code='OV_1.5', origine='calcul', probabilite=0.72, resultat='perdu'),
-    ]
-    tables, echantillons = apprendre_depuis_options(options, min_famille=MIN_FAMILLE)
-    assert echantillons['+1.5'] == 2
-    assert tables['+1.5'] == CALIBRATION_DEFAUT['+1.5']
-
-
-def test_apprendre_affine_avec_assez_d_obs(tmp_path, settings):
-    settings.BASE_DIR = tmp_path
-    invalider_calibration_cache()
-    options = []
-    for i in range(40):
-        options.append(SimpleNamespace(
-            code='OV_1.5',
-            origine='calcul',
-            probabilite=0.74 + (i % 5) * 0.01,
-            resultat='gagne' if i % 3 else 'perdu',
-        ))
-    tables, echantillons = apprendre_depuis_options(options, min_famille=20)
-    assert echantillons['+1.5'] == 40
-    assert tables['+1.5'] != CALIBRATION_DEFAUT['+1.5']
-    ys = [y for _, y in tables['+1.5']]
-    assert ys == sorted(ys)
+def test_apprentissage_centralise_sans_ecriture():
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    with pytest.raises(CommandError, match='Apprentissage centralisé'):
+        call_command('apprendre_calibration')
 
 
 def test_corriger_utilise_cache_apres_invalider():

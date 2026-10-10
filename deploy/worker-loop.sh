@@ -67,11 +67,12 @@ run_pipeline() {
   python manage.py importer_snapshot --url "$SNAP_URL" \
     || echo "WARN import Engine échoué"
 
-  # Optionnel : ingest live SofaScore (VPS egress libre) en complément.
-  if [ "${ZANALYZ_SYNC_LIVE:-1}" = "1" ]; then
-    echo ">>> synchroniser_sofascore + calculer (complément live)"
-    python manage.py synchroniser_sofascore --pages "${ZANALYZ_SYNC_PAGES:-${C2B_SYNC_PAGES:-1}}" --passes "${ZANALYZ_SYNC_PASSES:-${C2B_SYNC_PASSES:-1}}" --calculer \
-      || echo "WARN sync/calcul échoué (on continue — snapshot Engine déjà importé)"
+  # Le complément live met à jour les scores. Le snapshot reste propriétaire
+  # de ses analyses ; les calculs manuels utilisent le paquet Engine partagé.
+  if [ "${ZANALYZ_SYNC_LIVE:-0}" = "1" ]; then
+    echo ">>> synchroniser_sofascore (scores et statuts seulement)"
+    python manage.py synchroniser_sofascore --pages "${ZANALYZ_SYNC_PAGES:-${C2B_SYNC_PAGES:-1}}" --passes "${ZANALYZ_SYNC_PASSES:-${C2B_SYNC_PASSES:-1}}" \
+      || echo "WARN sync échoué (snapshot conservé)"
 
     if [ "${ZANALYZ_SYNC_CONTEXTE:-${C2B_SYNC_CONTEXTE:-0}}" = "1" ]; then
       echo ">>> sync contexte"
@@ -80,8 +81,13 @@ run_pipeline() {
     fi
   fi
 
-  echo ">>> regler_options --apprendre"
-  python manage.py regler_options --apprendre \
+  # Règlement sans `--apprendre` : la calibration est apprise par le moteur
+  # d'analyse, sur ses propres prédictions figées avant match. L'apprentissage
+  # local travaillait sur des probabilités DÉJÀ corrigées puis réappliquait la
+  # courbe aux brutes — domaine et usage ne correspondaient pas, et la
+  # correction se composait sur elle-même à chaque tour.
+  echo ">>> regler_options"
+  python manage.py regler_options \
     || echo "WARN règlement échoué"
 
   echo ">>> purger_chat"

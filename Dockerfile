@@ -11,6 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
+COPY vendor /app/vendor
 COPY wheels /wheels
 
 RUN pip install --no-index --find-links=/wheels -r requirements.txt \

@@ -29,7 +29,7 @@ def marquer_en_ligne(user_id: int) -> None:
     if r is None:
         return
     try:
-        r.setex(f'{_PREFIX}{int(user_id)}', _TTL, '1')
+        r.set(f'{_PREFIX}{int(user_id)}', '1', ex=_TTL)
     except Exception as exc:  # noqa: BLE001
         logger.debug('presence set: %s', exc)
 

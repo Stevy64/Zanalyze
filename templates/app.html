@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=114">
+  <link rel="stylesheet" href="/static/css/app.css?v=121">
 </head>
 <body
   x-data="zanalyz()"
@@ -80,6 +80,13 @@
   <div class="banners">
     <div class="banner banner-offline" x-show="horsLigne" x-cloak role="status">
       Hors ligne — affichage des dernières données enregistrées.
+    </div>
+    <div class="banner banner-offline" x-show="cachePerime" x-cloak role="status">
+      Liste enregistrée<span x-show="cacheDate" x-text="' du ' + fmtCache(cacheDate)"></span> —
+      certains matchs peuvent être joués.
+    </div>
+    <div class="banner banner-offline" x-show="etatMoteur && !etatMoteur.ok" x-cloak role="status">
+      <span x-text="etatMoteur ? etatMoteur.texte : ''"></span>
     </div>
     <div class="banner banner-update" x-show="swWaiting" x-cloak>
       Nouvelle version prête.
@@ -153,11 +160,12 @@
                 bloc.kind === 'europe' && bloc.comp.code === 'UEL' ? 'puce-uel' : '',
               ]"
               :aria-selected="bloc.kind === 'europe' ? filtre === bloc.comp.code : isFiltrePaysActif(bloc.pays)"
-              :aria-label="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
-              :title="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — championnat et coupes')"
+              :aria-label="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — compétitions')"
+              :title="bloc.kind === 'europe' ? bloc.comp.nom : (bloc.pays + ' — compétitions')"
               @click="bloc.kind === 'europe' ? setFiltre(bloc.comp.code) : setFiltrePays(bloc.pays)">
-              <span class="flag-wrap" x-html="bloc.kind === 'europe' ? drapeauComp(bloc.comp) : drapeauPays(bloc.pays)"></span>
-              <span x-show="bloc.kind === 'europe'" x-text="bloc.comp.code"></span>
+              <span class="flag-wrap" x-html="bloc.kind === 'europe' ? drapeauComp(bloc.comp) : (bloc.pays === 'Sélections internationales' ? icon('trophy') : drapeauPays(bloc.pays))"></span>
+              <span x-show="bloc.kind === 'pays' && bloc.pays === 'Sélections internationales'">Sélections</span>
+              <span x-show="bloc.kind === 'europe'" x-text="bloc.comp ? bloc.comp.code : ''"></span>
             </button>
           </template>
         </div>
@@ -193,6 +201,8 @@
             @click="setFiltreDate(dateHier())">Hier</button>
           <button type="button" class="puce" x-show="filtreDate" x-cloak
             @click="setFiltreDate('')">Toutes dates</button>
+          <button type="button" class="puce" :class="favorisOnly ? 'on' : ''"
+            :aria-pressed="favorisOnly" @click="favorisOnly = !favorisOnly">Mes matchs</button>
         </div>
         <p class="hint hint-logos" x-show="!(filtreDate && filtreDate < dateAujourdhui())">
           <span x-html="icon('info','icon icon-sm')"></span>
@@ -247,6 +257,10 @@
                       <span x-text="m.exterieur.nom_court"></span>
                     </strong>
                     <p class="carte-comp" x-text="m.competition.nom"></p>
+                    <button type="button" class="btn-text" :aria-pressed="estFavori(m.id)"
+                      :aria-label="estFavori(m.id) ? 'Retirer de mes matchs' : 'Suivre ce match'"
+                      @click.stop="toggleFavori(m.id)"
+                      x-text="estFavori(m.id) ? '★ Suivi' : '☆ Suivre'"></button>
                   </div>
                 </div>
                 <div class="tags">
@@ -408,6 +422,13 @@
                 </div>
               </div>
 
+              <div class="fiche-actions" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak>
+                <button type="button" class="btn btn-ghost" @click="toggleFavori(fiche.id)"
+                  :aria-pressed="estFavori(fiche.id)"
+                  x-text="estFavori(fiche.id) ? '★ Match suivi' : '☆ Suivre ce match'"></button>
+                <button type="button" class="btn btn-ghost" @click="telechargerRappel(fiche)">Rappel agenda · 1 h avant</button>
+              </div>
+
               <div class="prono-box" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak>
                 <div class="prono-head">
                   <strong>Challenge 1X2</strong>
@@ -520,6 +541,13 @@
                   </div>
                 </div>
                 <p x-show="fiche.analyse.douteuse" class="doute">Ajustement douteux (résidu élevé) — à lire avec prudence.</p>
+                <p x-show="fiche.analyse.source_cotes && fiche.analyse.source_cotes.startsWith('forces')" class="doute">
+                  Aucune cote disponible pour ce match : estimation calculée sur les seuls
+                  résultats passés des deux équipes. Moins fiable qu'une lecture du marché.
+                </p>
+                <p class="hint" x-show="fiche.analyse.calcule_le">
+                  Calculé par le moteur <span x-text="fmtCache(fiche.analyse.calcule_le)"></span>.
+                </p>
               </section>
             </template>
 
@@ -579,7 +607,14 @@
                         </div>
                         <div class="stats-row"><span>Cote juste</span><strong x-text="fmtCote(o.cote_juste)"></strong></div>
                       </div>
-                      <p class="cote-hint">En dessous de <span x-text="fmtCote(o.cote_juste)"></span>, tu paies trop cher.</p>
+                      <div class="cote-comparaison">
+                        <label :for="'cote-observee-' + o.id">Cote trouvée chez ton opérateur</label>
+                        <input type="number" inputmode="decimal" min="1.01" max="1000" step="0.01"
+                          :id="'cote-observee-' + o.id" :name="'cote-observee-' + o.id"
+                          placeholder="Ex. 1,85" x-model="cotesObservees[o.id]">
+                        <p class="cote-hint" x-show="cotesObservees[o.id]" x-text="avisCote(o)" role="status"></p>
+                        <p class="hint">Comparaison indicative ; Zanalyze ne place aucun pari.</p>
+                      </div>
                       <p class="hcp-note" x-show="o.code.startsWith('HCP_')">
                         Handicap européen : perdre d’exactement un but gagne. Ce n’est pas un handicap asiatique.
                       </p>
@@ -708,8 +743,8 @@
               <div class="prop-card-head">
                 <span class="panel-ico" x-html="icon('users')"></span>
                 <div>
-                  <h2>Propositions de paris</h2>
-                  <p class="hint">Chaque inscrit choisit un scénario. Les % ci-dessous = part des votes.</p>
+                  <h2>Scénarios de la communauté</h2>
+                  <p class="hint">Un scénario avant le coup d’envoi. Le résultat compte pour le classement après le match ; les votes montrent seulement l’avis du groupe.</p>
                 </div>
               </div>
 
@@ -742,6 +777,7 @@
                   <li class="prop-item">
                     <div class="prop-haut">
                       <strong x-text="p.libelle"></strong>
+                      <span class="prop-result" x-show="p.resultat" x-cloak :class="p.resultat === 'valide' ? 'is-valid' : 'is-invalid'" x-text="p.resultat === 'valide' ? '✓ Validé' : 'Non validé'"></span>
                       <div class="pct-stack right">
                         <span class="badge soft" x-text="p.confiance + ' %'"></span>
                         <span class="opt-cons" x-text="'Accord ' + (p.pct_likes != null ? p.pct_likes + ' %' : '—')"></span>
@@ -769,8 +805,8 @@
                 </template>
               </ul>
               <p class="vide vide-sm" x-show="!propositions.length">Aucune proposition pour l’instant — sois le premier.</p>
-              <form class="prop-compose" @submit.prevent="proposerParis()">
-                <p class="prop-compose-label">Publier ton scénario <span>(1 par match)</span></p>
+              <form class="prop-compose" x-show="statutEffectif(fiche) === 'a_venir'" x-cloak @submit.prevent="proposerParis()">
+                <p class="prop-compose-label">Publier ton scénario <span>(1 par match · avant le coup d’envoi)</span></p>
                 <p class="prop-compose-hint" x-show="!propType" x-cloak>Choisis un scénario pour activer Publier.</p>
                 <div class="prop-types" role="group" aria-label="Scénario">
                   <template x-for="t in TYPES_PROPOSITION" :key="t.code">
@@ -794,6 +830,7 @@
                   x-text="propType ? 'Publier' : 'Choisis un scénario'"></button>
                 <p class="ko" x-show="propErr" x-text="propErr" x-cloak></p>
               </form>
+              <p class="hint" x-show="statutEffectif(fiche) !== 'a_venir'" x-cloak>Les propositions sont fermées depuis le coup d’envoi. Les résultats apparaissent après validation du score final.</p>
             </section>
           </div>
         </template>
@@ -847,13 +884,37 @@
               <button type="button" role="tab" class="salon-seg-btn"
                 :class="salonOnglet === 'classement' ? 'on' : ''"
                 :aria-selected="salonOnglet === 'classement'"
-                @click="salonOnglet = 'classement'; chargerClassement()">
+                @click="salonOnglet = 'classement'; choisirClassement('propositions')">
                 <span x-html="icon('trophy','icon icon-sm')"></span>
                 Classement
               </button>
             </div>
             <template x-if="salonOnglet === 'classement'">
               <div class="classement-wrap">
+                <div class="ranking-switch" role="tablist" aria-label="Type de classement">
+                  <button type="button" role="tab" :aria-selected="classementMode === 'propositions'" :class="classementMode === 'propositions' ? 'on' : ''" @click="choisirClassement('propositions')">Scénarios vérifiés</button>
+                  <button type="button" role="tab" :aria-selected="classementMode === 'points'" :class="classementMode === 'points' ? 'on' : ''" @click="choisirClassement('points')">Points d’activité</button>
+                </div>
+                <div x-show="classementMode === 'propositions'" x-cloak>
+                  <p class="ranking-explain">Sur 90 jours · 5 scénarios évalués minimum · score prudent selon réussite et volume. Les likes ne comptent pas.</p>
+                  <div class="ranking-me" x-show="classementPropositionsMoi" x-cloak>
+                    <strong x-text="classementPropositionsMoi && (classementPropositionsMoi.rang ? ('Ton rang : #' + classementPropositionsMoi.rang) : 'Encore ' + classementPropositionsMoi.restants + ' scénario(s) évalué(s) pour entrer au classement')"></strong>
+                    <span x-text="classementPropositionsMoi && (classementPropositionsMoi.valides + '/' + classementPropositionsMoi.total + ' validés')"></span>
+                  </div>
+                  <div class="loader-wrap" x-show="classementPropositionsChargement" x-cloak><div class="app-loader app-loader-sm" role="status" aria-label="Chargement"><span class="app-loader-ring"></span><span class="app-loader-ring app-loader-ring-2"></span><span class="app-loader-core"></span></div></div>
+                  <ol class="classement-liste" x-show="!classementPropositionsChargement" x-cloak>
+                    <template x-for="row in classementPropositions" :key="'accuracy-' + row.user_id">
+                      <li class="cl-row" :class="row.username === username ? 'is-me' : ''">
+                        <span class="cl-rang" x-text="'#' + row.rang"></span>
+                        <span class="cl-avatar" aria-hidden="true" x-text="(row.username || '?').charAt(0).toUpperCase()"></span>
+                        <div class="cl-identity"><strong class="cl-name" x-text="row.username"></strong><span class="cl-grade" x-text="row.valides + '/' + row.total + ' validés · ' + row.taux + ' %'"></span></div>
+                        <span class="cl-pts" :title="'Score prudent : ' + row.score + ' %'"><b x-text="row.score"></b><small>score</small></span>
+                      </li>
+                    </template>
+                  </ol>
+                  <p class="vide vide-sm" x-show="!classementPropositionsChargement && !classementPropositions.length" x-cloak>Le classement commencera après cinq scénarios évalués. Publie avant le coup d’envoi.</p>
+                </div>
+                <div x-show="classementMode === 'points'" x-cloak>
                 <div class="loader-wrap" x-show="classementChargement" x-cloak>
                   <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
                     <span class="app-loader-ring"></span>
@@ -894,6 +955,7 @@
                   <span class="vide-ico" x-html="icon('trophy','icon icon-lg')"></span>
                   Aucun point pour l’instant — lance ton premier pronostic sur une fiche match.
                 </p>
+                </div>
               </div>
             </template>
             <template x-if="salonOnglet === 'chat'">
@@ -910,6 +972,8 @@
                 </div>
               </div>
               <template x-for="(msg, idx) in chatMessages" :key="'m-' + msg.id">
+                <div class="chat-entry">
+                <div class="chat-day" x-show="chatShowDay(msg, idx)" x-cloak x-text="fmtChatJour(msg.created_at)"></div>
                 <div class="chat-row"
                   :class="{
                     'is-me': msg.est_moi && !msg.systeme,
@@ -949,8 +1013,10 @@
                     <time class="chat-time" x-text="fmtChatHeure(msg.created_at)"></time>
                   </div>
                 </div>
+                </div>
               </template>
             </div>
+            <button type="button" class="chat-jump" x-show="chatNewBelow > 0" x-cloak @click="allerNouveauxChat()" x-text="chatNewBelow + ' nouveau' + (chatNewBelow > 1 ? 'x messages' : ' message') + ' ↓'"></button>
 
             <div class="salon-stickers" x-show="chatStickersOpen" x-cloak>
               <template x-for="s in chatStickers" :key="'st-' + s">
@@ -1196,7 +1262,7 @@
             <span class="panel-ico" x-html="icon('layers')"></span>
             <div>
               <h2>Compétitions suivies</h2>
-              <p class="hint">Ligues + coupes — désactive pour retirer une compétition des puces d’accueil</p>
+              <p class="hint">Ligues, coupes et sélections — personnalise les compétitions affichées</p>
             </div>
           </div>
           <template x-for="groupe in competitionsParPays" :key="groupe.pays">
@@ -1313,7 +1379,7 @@
         <span x-html="dialog ? icon(dialog.icon || 'info', 'icon icon-lg') : ''"></span>
       </div>
       <p class="app-dialog-kicker" x-show="dialog && dialog.kicker" x-cloak
-        x-text="dialog.kicker"></p>
+        x-text="dialog ? dialog.kicker : ''"></p>
       <h2 class="app-dialog-title" x-text="dialog ? dialog.titre : ''"></h2>
       <p class="app-dialog-msg" x-text="dialog ? dialog.message : ''"></p>
       <div class="app-dialog-actions"
@@ -1934,6 +2000,30 @@
         <span class="cl-cat-pill"
           x-text="(classementMoi && classementMoi.libelle_categorie) || (categorie === 'premium' ? 'Premium' : 'Membres')"></span>
       </h2>
+      <div class="ranking-switch" role="tablist" aria-label="Type de classement">
+        <button type="button" role="tab" :aria-selected="classementMode === 'propositions'" :class="classementMode === 'propositions' ? 'on' : ''" @click="choisirClassement('propositions')">Scénarios vérifiés</button>
+        <button type="button" role="tab" :aria-selected="classementMode === 'points'" :class="classementMode === 'points' ? 'on' : ''" @click="choisirClassement('points')">Points d’activité</button>
+      </div>
+      <div x-show="classementMode === 'propositions'" x-cloak>
+        <p class="ranking-explain">90 jours · 5 scénarios évalués minimum. Classement selon un score prudent ; les likes ne comptent pas.</p>
+        <div class="ranking-me" x-show="classementPropositionsMoi" x-cloak>
+          <strong x-text="classementPropositionsMoi && (classementPropositionsMoi.rang ? ('Ton rang : #' + classementPropositionsMoi.rang) : 'Encore ' + classementPropositionsMoi.restants + ' scénario(s) évalué(s)')"></strong>
+          <span x-text="classementPropositionsMoi && (classementPropositionsMoi.valides + '/' + classementPropositionsMoi.total + ' validés')"></span>
+        </div>
+        <div class="loader-wrap" x-show="classementPropositionsChargement" x-cloak><div class="app-loader app-loader-sm" role="status" aria-label="Chargement"><span class="app-loader-ring"></span><span class="app-loader-ring app-loader-ring-2"></span><span class="app-loader-core"></span></div></div>
+        <ol class="classement-liste" x-show="!classementPropositionsChargement" x-cloak>
+          <template x-for="row in classementPropositions" :key="'sheet-accuracy-' + row.user_id">
+            <li class="cl-row" :class="row.username === username ? 'is-me' : ''">
+              <span class="cl-rang" x-text="'#' + row.rang"></span>
+              <span class="cl-avatar" aria-hidden="true" x-text="(row.username || '?').charAt(0).toUpperCase()"></span>
+              <div class="cl-identity"><strong class="cl-name" x-text="row.username"></strong><span class="cl-grade" x-text="row.valides + '/' + row.total + ' validés · ' + row.taux + ' %'"></span></div>
+              <span class="cl-pts"><b x-text="row.score"></b><small>score</small></span>
+            </li>
+          </template>
+        </ol>
+        <p class="vide vide-sm" x-show="!classementPropositionsChargement && !classementPropositions.length" x-cloak>Le classement commence après cinq scénarios évalués.</p>
+      </div>
+      <div x-show="classementMode === 'points'" x-cloak>
       <div class="loader-wrap" x-show="classementChargement" x-cloak>
         <div class="app-loader app-loader-sm" role="status" aria-label="Chargement">
           <span class="app-loader-ring"></span>
@@ -1974,6 +2064,7 @@
         <span class="vide-ico" x-html="icon('trophy','icon icon-lg')"></span>
         Personne n’a encore de points — sois le premier à pronostiquer !
       </p>
+      </div>
       <button type="button" class="btn btn-ghost btn-block" @click="fermerSheets()">Fermer</button>
     </div>
   </div>
@@ -1989,22 +2080,29 @@
       <div class="vip-sheet-hero">
         <span class="vip-sheet-ico" x-html="icon('crown','icon icon-lg')"></span>
         <h2>Passe Premium</h2>
-        <p class="vip-tarif" x-text="vipTarifLibelle || 'Premium Zanalyze'"></p>
+        <p class="vip-tarif" x-text="vipPrixXaf ? (vipPrixXaf.toLocaleString('fr-FR') + ' FCFA pour 1 mois') : (vipTarifLibelle || 'Tarif à confirmer')"></p>
       </div>
+      <p class="vip-value">Pour suivre les analyses en profondeur et échanger avec la communauté.</p>
       <ul class="vip-perks">
         <li><span x-html="icon('layers','icon icon-sm')"></span> Nos Zanalyzes (sélection + bilans)</li>
-        <li><span x-html="icon('crosshair','icon icon-sm')"></span> Justifications complètes des tips</li>
-        <li><span x-html="icon('message','icon icon-sm')"></span> Accès au Salon Premium</li>
-        <li><span x-html="icon('badge-check','icon icon-sm')"></span> Statut couronne visible sur ton compte</li>
+        <li><span x-html="icon('crosshair','icon icon-sm')"></span> Analyses et contextes détaillés des matchs</li>
+        <li><span x-html="icon('message','icon icon-sm')"></span> Salon Premium : discussion, images, PDF et classement</li>
+        <li><span x-html="icon('badge-check','icon icon-sm')"></span> Statut couronne et historique de ton abonnement</li>
       </ul>
-      <p class="hint vip-hint">
-        Réservé aux comptes membres : envoie ta demande sur WhatsApp avec ton pseudo.
-        Après paiement, l’admin active ton badge Premium.
+      <p class="hint vip-hint">Un mois d’accès, sans renouvellement automatique. La date de fin est visible dans ton compte.</p>
+      <button type="button" class="btn btn-block" x-show="authentifie && vipPaiementDisponible" x-cloak
+        :disabled="premiumBusy" @click="payerPremium()"
+        x-text="premiumBusy ? 'Ouverture du paiement…' : 'Payer avec SingPay'"></button>
+      <button type="button" class="btn btn-ghost btn-block" x-show="authentifie && premiumReference" x-cloak
+        :disabled="premiumBusy" @click="verifierPaiementPremium()">Vérifier mon paiement</button>
+      <p class="ko" role="status" x-show="premiumErr" x-text="premiumErr" x-cloak></p>
+      <p class="hint" x-show="!vipPaiementDisponible" x-cloak>
+        Paiement accompagné : contacte-nous sur WhatsApp avec ton pseudo. L’accès est activé après vérification du règlement.
       </p>
       <a class="btn btn-block btn-whatsapp"
         x-show="authentifie && whatsappVipUrl" x-cloak
         :href="whatsappVipUrl" target="_blank" rel="noopener">
-        Demander sur WhatsApp
+        Contacter le support sur WhatsApp
       </a>
       <p class="ko" x-show="authentifie && !whatsappVipUrl" x-cloak>
         Lien WhatsApp pas encore configuré — reviens un peu plus tard.
@@ -2146,7 +2244,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=114"></script>
+  <script defer src="/static/js/app.js?v=121"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

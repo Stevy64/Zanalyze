@@ -5606,3 +5606,36 @@ body.salon-mode .ecran.salon {
 .auth-eye:hover { color: var(--navy); background: #eef1f5; }
 .auth-sheet-body .auth-form { max-width: 300px; }
 .bloc-card .auth-form { margin-left: 0; }
+
+/* Aide à la comparaison, lisible sur les petits écrans. */
+.cote-comparaison{display:grid;gap:.45rem;margin-top:1rem;padding:1rem;border:1px solid #e5e7eb;border-radius:14px;background:#fafaf9}
+.cote-comparaison label{font-weight:650;color:#273449}
+.cote-comparaison input{width:100%;min-height:44px;padding:.65rem .8rem;border:1px solid #a8b0bc;border-radius:10px;font:inherit;background:#fff;color:#172033}
+.cote-comparaison input:focus-visible{outline:3px solid #e8631c;outline-offset:2px}
+.carte-titres .btn-text{min-height:36px;text-align:left}
+
+/* Communauté : lecture mobile, états de progression et hiérarchie Premium. */
+.ranking-switch { display:flex; gap:4px; margin:10px 12px 14px; padding:4px; border-radius:14px; background:#eef1f6; }
+.ranking-switch button { flex:1; min-height:40px; border:0; border-radius:10px; color:#506178; background:transparent; font:inherit; font-size:.82rem; font-weight:700; cursor:pointer; transition:background .2s ease,box-shadow .2s ease,color .2s ease; }
+.ranking-switch button.on { background:#fff; color:#12233d; box-shadow:0 2px 10px rgba(12,29,53,.1); }
+.ranking-explain { margin:0 16px 14px; color:#617087; font-size:.82rem; line-height:1.5; }
+.ranking-me { display:flex; justify-content:space-between; gap:12px; align-items:center; margin:0 14px 14px; padding:13px 14px; border-radius:14px; background:#fff7ed; border:1px solid #fed7aa; color:#713f12; font-size:.78rem; }
+.ranking-me strong { font-weight:800; line-height:1.35; }
+.ranking-me span { flex-shrink:0; }
+.salon-chat-pane { position:relative; }
+.salon-feed { background:linear-gradient(180deg,#f6f8fb,#f1f5f9); overscroll-behavior:contain; }
+.chat-day { width:max-content; max-width:90%; margin:14px auto 10px; padding:5px 12px; border-radius:999px; color:#66758c; background:#e8edf4; font-size:.7rem; font-weight:700; text-align:center; }
+.chat-jump { position:absolute; right:14px; bottom:86px; z-index:2; padding:9px 14px; border:1px solid #d8e0ed; border-radius:999px; background:#fff; box-shadow:0 8px 24px rgba(13,32,61,.16); color:#173153; font:inherit; font-size:.78rem; font-weight:800; cursor:pointer; animation:chat-jump-in .2s ease both; }
+@keyframes chat-jump-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.salon-compose input[type=text]:focus-visible,.ranking-switch button:focus-visible,.chat-jump:focus-visible { outline:3px solid #f59e0b; outline-offset:2px; }
+.prop-result { display:inline-flex; align-items:center; border-radius:999px; padding:3px 8px; font-size:.7rem; font-weight:800; }
+.prop-result.is-valid { background:#dcfce7; color:#166534; }
+.prop-result.is-invalid { background:#f1f5f9; color:#64748b; }
+.vip-value { margin:0 0 12px; color:#53657e; font-size:.88rem; line-height:1.5; text-align:center; }
+@media (max-width:600px) { .ranking-me { align-items:flex-start; flex-direction:column; gap:4px; } .ranking-switch button { font-size:.74rem; } .salon-feed { padding-inline:10px; } .chat-jump { bottom:80px; } }
+@media (prefers-reduced-motion:reduce) { .chat-jump { animation:none; } .ranking-switch button { transition:none; } }
+
+.fiche-actions { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+.fiche-actions .btn { flex:1 1 150px; min-height:42px; font-size:.82rem; }
+
+.chat-entry { display:flex; flex-direction:column; width:100%; }

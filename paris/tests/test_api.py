@@ -90,7 +90,7 @@ class ApiMatchsQueriesTests(TestCase):
         r = self.client.get('/api/v1/matchs/')
         self.assertEqual(r.status_code, 200)
         self.assertIn('ETag', r)
-        self.assertIn('max-age=300', r['Cache-Control'])
+        self.assertIn('max-age=60', r['Cache-Control'])
         self.assertLess(len(r.content), 40_000)
         data = r.json()
         row = data['results'][0]

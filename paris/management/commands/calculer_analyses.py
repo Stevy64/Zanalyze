@@ -44,15 +44,18 @@ class Command(BaseCommand):
             Match.objects.filter(
                 coup_denvoi__gte=debut,
                 coup_denvoi__lte=fin,
+                coup_denvoi__gt=timezone.now(),
+                statut='a_venir',
+                cle_moteur='',
             )
             .exclude(statut__in=('termine', 'reporte'))
-            .select_related('domicile', 'exterieur')
+            .select_related('domicile', 'exterieur', 'competition')
             .prefetch_related('cotes')
         )
         if not matchs:
             raise CommandError(
                 f'Aucun match à analyser le {jour.isoformat()} '
-                f'(hors terminés/reportés).'
+                f'(uniquement matchs futurs non gérés par le snapshot Engine).'
             )
 
         analyses = []
@@ -72,9 +75,10 @@ class Command(BaseCommand):
                 'nom_dom': match.domicile.nom_court,
                 'nom_ext': match.exterieur.nom_court,
                 'ref': ref,
+                'ligue': match.competition.code,
             }
             if cotes_ou:
-                item['o25'], item['u25'] = cotes_ou
+                item['over'], item['under'], item['ligne'] = cotes_ou
             lots.append(item)
             match_by_ref[ref] = match
 
@@ -139,13 +143,30 @@ class Command(BaseCommand):
             unx2 = (by[('1X2', '1')], by[('1X2', 'N')], by[('1X2', '2')])
         except KeyError:
             return None, None
-        ou = None
-        if ('OU25', 'over') in by and ('OU25', 'under') in by:
-            ou = (by[('OU25', 'over')], by[('OU25', 'under')])
-        return unx2, ou
+        totaux = []
+        for marche, selection in by:
+            if selection != 'over' or not marche.startswith('OU'):
+                continue
+            try:
+                ligne = 2.5 if marche == 'OU25' else float(marche[2:])
+            except ValueError:
+                continue
+            if (marche, 'under') in by:
+                # La ligne du match est prioritaire, puis la plus proche de 2.5.
+                rang = abs(ligne - (match.ligne_totaux or 2.5))
+                totaux.append((rang, ligne, by[(marche, 'over')], by[(marche, 'under')]))
+        if not totaux:
+            return unx2, None
+        _, ligne, over, under = min(totaux)
+        return unx2, (over, under, ligne)
 
     def _sauver(self, match, payload):
         """Met à jour l’analyse sans effacer les options déjà réglées ni leurs votes."""
+        # Revérifier sous verrou après l'appel réseau : un import ou le coup
+        # d'envoi peut être survenu entre la sélection et la sauvegarde.
+        match = Match.objects.select_for_update().get(pk=match.pk)
+        if match.cle_moteur or match.statut != 'a_venir' or match.coup_denvoi <= timezone.now():
+            return 0
         analyse, _ = Analyse.objects.update_or_create(
             match=match,
             defaults={
@@ -159,8 +180,14 @@ class Command(BaseCommand):
                 'marge_marche': payload['marge_marche'],
                 'residu': payload['residu'],
                 'version_moteur': payload['version_moteur'],
+                'douteuse': payload.get('douteuse', False),
+                'exposition_lot': payload.get('exposition_lot'),
+                'source_cotes': payload.get('source_cotes') or 'marche',
+                'calcule_le': timezone.now(),
             },
         )
+        match.ligne_totaux = payload.get('ligne_totaux')
+        match.save(update_fields=['ligne_totaux'])
         existing = {o.code: o for o in analyse.options.all()}
         seen = set()
         n = 0
@@ -177,10 +204,20 @@ class Command(BaseCommand):
                     cote_juste=o['cote_juste'],
                     niveau=o['niveau'],
                     origine=o['origine'],
+                    confiance=o.get('confiance'),
+                    explication=o.get('explication', ''),
+                    probabilite_brute=o.get('p_brute'),
+                    calibree=o.get('calibree', False),
                 )
                 n += 1
                 continue
-            # Ne jamais écraser un règlement (gagne/perdu/annule).
+            # Préserver aussi les probabilités et le niveau du pari réglé.
+            if old.resultat != 'attente':
+                continue
+            old.confiance = o.get('confiance')
+            old.explication = o.get('explication', '')
+            old.probabilite_brute = o.get('p_brute')
+            old.calibree = o.get('calibree', False)
             old.famille = o['famille']
             old.libelle = o['libelle']
             old.probabilite = o['probabilite']

@@ -1,0 +1,32 @@
+{
+  "methode": "Cas synthétiques cohérents issus de la matrice Poisson, marge 4 %, calibration commune. Vérification de contrat, pas mesure de performance prédictive.",
+  "cas": [
+    {
+      "ligne": 2.5,
+      "ancien_total": 2.6526,
+      "engine_total": 2.6526,
+      "ancien_residu": 0.00233,
+      "engine_residu": 0.00233,
+      "anciennes_options": 35,
+      "engine_options": 34
+    },
+    {
+      "ligne": 3.5,
+      "ancien_total": 2.1507,
+      "engine_total": 3.0021,
+      "ancien_residu": 0.04744,
+      "engine_residu": 0.00262,
+      "anciennes_options": 35,
+      "engine_options": 33
+    },
+    {
+      "ligne": 4.5,
+      "ancien_total": 2.6143,
+      "engine_total": 4.5031,
+      "ancien_residu": 0.07812,
+      "engine_residu": 0.00435,
+      "anciennes_options": 35,
+      "engine_options": 34
+    }
+  ]
+}

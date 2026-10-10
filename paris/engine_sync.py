@@ -248,9 +248,16 @@ def importer_engine(*, force: bool = False, min_age: int | None = None) -> dict[
 def declencher_refresh_async(*, force: bool = False) -> bool:
     """Lance un import en arrière-plan si le snapshot semble périmé."""
     global _async_started
+    from django.conf import settings
+    if str(getattr(settings, 'ZANALYZ_SYNC_LIVE', '1')).lower() in ('0', 'false', 'off', 'no'):
+        return False
     meta = lire_meta()
     age = _age_secondes(meta.get('importe_le'))
     if not force and age is not None and age < MIN_AGE_AUTO:
+        return False
+    # Après un échec réseau, éviter un nouvel essai à chaque ouverture de page.
+    echec_age = _age_secondes(meta.get('importe_le_echec'))
+    if not force and echec_age is not None and echec_age < 300:
         return False
 
     def _run():
@@ -260,11 +267,13 @@ def declencher_refresh_async(*, force: bool = False) -> bool:
         finally:
             _async_started = False
 
-    with _lock:
-        # Ne pas bloquer si import déjà en cours (lock tenu ailleurs).
-        pass
-    if _async_started:
+    if not _lock.acquire(blocking=False):
         return False
-    _async_started = True
-    threading.Thread(target=_run, daemon=True, name='engine-sync').start()
-    return True
+    try:
+        if _async_started:
+            return False
+        _async_started = True
+        threading.Thread(target=_run, daemon=True, name='engine-sync').start()
+        return True
+    finally:
+        _lock.release()

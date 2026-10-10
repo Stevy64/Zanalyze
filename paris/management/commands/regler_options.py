@@ -1,5 +1,4 @@
-from django.core.management.base import BaseCommand
-from django.core.management import call_command
+from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Prefetch
 
 from paris.models import Match, Option
@@ -14,10 +13,12 @@ class Command(BaseCommand):
         parser.add_argument(
             '--apprendre',
             action='store_true',
-            help='Après règlement, affine data/calibration.json (apprendre_calibration).',
+            help='Option retirée : la calibration est centralisée dans Zanalyze Engine.',
         )
 
     def handle(self, *args, **opts):
+        if opts['apprendre']:
+            raise CommandError('Utiliser « python -m engine calibrer » dans Zanalyze Engine. Aucun règlement effectué.')
         qs = (
             Match.objects.filter(statut='termine', buts_dom__isnull=False)
             .select_related('analyse')

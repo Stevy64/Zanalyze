@@ -18,6 +18,7 @@ x-django-env: &django-env
   DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL:-INFO}
   ZANALYZ_WHATSAPP_PHONE: ${ZANALYZ_WHATSAPP_PHONE:-}
   ZANALYZ_MOTEUR_URL: ${ZANALYZ_MOTEUR_URL:-http://moteur:8001}
+  ENGINE_CALIBRATION_FILE: ${ENGINE_CALIBRATION_FILE:-/app/data/engine-calibration.json}
   ZANALYZ_REDIS_URL: ${ZANALYZ_REDIS_URL:-redis://redis:6379/0}
 
 services:
@@ -63,6 +64,9 @@ services:
     environment:
       ZANALYZ_SKIP_MIGRATE: "1"
       ZANALYZ_SKIP_COLLECTSTATIC: "1"
+      ENGINE_CALIBRATION_FILE: ${ENGINE_CALIBRATION_FILE:-/app/data/engine-calibration.json}
+    volumes:
+      - zanalyz_data:/app/data:ro
     healthcheck:
       test:
         [

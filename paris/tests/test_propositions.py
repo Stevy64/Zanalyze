@@ -3,6 +3,7 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
+from datetime import timedelta
 from rest_framework.test import APIClient
 
 from paris.models import Competition, Equipe, Match, Profil, PropositionParis
@@ -18,7 +19,7 @@ class PropositionsTests(TestCase):
             competition=self.comp,
             domicile=self.dom,
             exterieur=self.ext,
-            coup_denvoi=timezone.now(),
+            coup_denvoi=timezone.now() + timedelta(hours=2),
         )
         self.u1 = User.objects.create_user('prop1', password='motdepasse123')
         self.u2 = User.objects.create_user('prop2', password='motdepasse123')

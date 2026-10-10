@@ -1,3 +1,5 @@
+> Archive historique v3.1. Pour le fonctionnement actuel, voir [Moteur unique](moteur-unique.md). Les commandes et chemins ci-dessous décrivent l’ancien système.
+
 ﻿# Moteur de pronostics — version 3.1 (intégré dans Zanalyze)
 
 Modules portés dans `paris/` :

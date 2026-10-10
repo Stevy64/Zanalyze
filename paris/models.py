@@ -1,4 +1,5 @@
 from django.conf import settings
+import uuid
 from django.db import models
 from django.utils import timezone
 
@@ -58,6 +59,15 @@ class Match(models.Model):
     buts_dom_mt = models.PositiveSmallIntegerField(null=True, blank=True)
     buts_ext_mt = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    # Publiés par le moteur, et jusqu'ici jetés à l'import.
+    # `ligne_totaux` dit sur quel seuil de buts le bookmaker cote : 35 % des
+    # rencontres ne sont pas cotées à 2,5. L'ignorer faisait lire un prix sur
+    # 3,5 comme un prix sur 2,5.
+    ligne_totaux = models.FloatField(null=True, blank=True)
+    # Clé canonique côté moteur : le seul identifiant stable entre les deux
+    # dépôts, indépendant des identifiants de fournisseurs.
+    cle_moteur = models.CharField(max_length=120, blank=True, db_index=True)
+
     class Meta:
         ordering = ['coup_denvoi']
         verbose_name = 'Match'
@@ -108,7 +118,21 @@ class Analyse(models.Model):
     marge_marche = models.FloatField()
     residu = models.FloatField()                           # qualité de l'ajustement
     version_moteur = models.CharField(max_length=12)
-    calcule_le = models.DateTimeField(auto_now=True)
+    # `auto_now` réécrivait ce champ à chaque import : une analyse de trois
+    # jours paraissait fraîche de deux heures. La date du moteur est désormais
+    # reprise telle quelle, et `importe_le` dit quand on l'a reçue.
+    calcule_le = models.DateTimeField(null=True, blank=True)
+    importe_le = models.DateTimeField(auto_now=True)
+
+    # Verdicts du moteur, repris tels quels. L'app les recalculait avec ses
+    # propres seuils et pouvait donc contredire le moteur sur la fiabilité de
+    # sa propre analyse.
+    douteuse = models.BooleanField(default=False)
+    # 'draftkings', 'forces', 'forces_toutes_competitions'… Une analyse sans
+    # cotes, estimée sur les seuls résultats passés, doit se présenter comme
+    # telle à l'utilisateur.
+    source_cotes = models.CharField(max_length=40, blank=True)
+    exposition_lot = models.JSONField(null=True, blank=True)
 
     class Meta:
         verbose_name = 'Analyse moteur'
@@ -135,6 +159,16 @@ class Option(models.Model):
     cote_juste = models.FloatField()
     niveau = models.CharField(max_length=12, choices=NIVEAU, default='detail')
     origine = models.CharField(max_length=8, choices=ORIGINE)
+
+    # Publiés par le moteur. L'app les jetait et fabriquait à la place une
+    # phrase par mots-clés, servie aux comptes Premium sous le titre
+    # « Pourquoi ce tip ».
+    explication = models.CharField(max_length=300, blank=True)
+    confiance = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Probabilité avant calibration, et verdict du moteur sur l'application de
+    # la courbe : False quand aucune courbe ne couvrait cette probabilité.
+    probabilite_brute = models.FloatField(null=True, blank=True)
+    calibree = models.BooleanField(default=False)
 
     # rempli automatiquement après le match
     resultat = models.CharField(max_length=8, choices=RESULTAT, default='attente')
@@ -502,6 +536,9 @@ class ReglageSite(models.Model):
             'Le message avec le pseudo du Zanalyste est reconstruit automatiquement.'
         ),
     )
+    vip_prix_xaf = models.PositiveIntegerField(
+        default=0, help_text='Prix en FCFA pour un mois Premium. Zéro désactive le paiement en ligne.',
+    )
     vip_tarif_libelle = models.CharField(
         max_length=120, blank=True, default='Premium Zanalyze',
         help_text='Court libellé affiché sur le CTA (ex. « Premium — 4,99 € / mois »).',
@@ -684,3 +721,27 @@ class TraceActivite(models.Model):
     def __str__(self):
         who = self.user.username if self.user_id else 'anonyme'
         return f'{self.created_at:%d/%m %H:%M} · {who} · {self.label}'
+
+
+class PaiementPremium(models.Model):
+    """Achat mensuel Premium : seul un succès vérifié chez SingPay accorde l’accès."""
+    reference = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='paiements_premium')
+    montant_xaf = models.PositiveIntegerField()
+    statut = models.CharField(max_length=16, choices=[
+        ('initialisation', 'Initialisation'), ('en_attente', 'En attente'),
+        ('paye', 'Payé'), ('echoue', 'Échoué'),
+    ], default='initialisation', db_index=True)
+    lien_paiement = models.URLField(max_length=2048, blank=True)
+    singpay_id = models.CharField(max_length=120, blank=True)
+    cree_le = models.DateTimeField(auto_now_add=True)
+    maj_le = models.DateTimeField(auto_now=True)
+    active_le = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-cree_le',)
+        verbose_name = 'Paiement Premium'
+        verbose_name_plural = 'Paiements Premium'
+
+    def __str__(self):
+        return f'{self.reference} — {self.montant_xaf} FCFA — {self.statut}'

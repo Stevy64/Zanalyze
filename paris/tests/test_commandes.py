@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from paris.import_json import ImportInvalide, valider_payload
 from paris.models import Match, Option
@@ -30,7 +30,15 @@ class ValidationImportTests(TestCase):
         self.assertEqual(len(valider_payload(data)), 9)
 
 
+@override_settings(ZANALYZ_MOTEUR_URL="")
 class CommandesTests(TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        from datetime import datetime, timezone
+        clock = patch('django.utils.timezone.now', return_value=datetime(2026, 9, 8, tzinfo=timezone.utc))
+        clock.start()
+        self.addCleanup(clock.stop)
+
     def test_import_dry_run_n_ecrit_pas(self):
         out = StringIO()
         call_command('importer_matchs', source=str(EXEMPLE), dry_run=True, stdout=out)
