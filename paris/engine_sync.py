@@ -246,11 +246,13 @@ def importer_engine(*, force: bool = False, min_age: int | None = None) -> dict[
 
 
 def declencher_refresh_async(*, force: bool = False) -> bool:
-    """Lance un import en arrière-plan si le snapshot semble périmé."""
+    """Lance un import du snapshot publié si la copie locale est périmée.
+
+    ZANALYZ_SYNC_LIVE ne concerne que l'enrichissement direct (ESPN,
+    TheSportsDB). Le fichier publié par le moteur reste importé : c'est
+    lui qui remet les analyses à l'heure à l'ouverture de la page.
+    """
     global _async_started
-    from django.conf import settings
-    if str(getattr(settings, 'ZANALYZ_SYNC_LIVE', '1')).lower() in ('0', 'false', 'off', 'no'):
-        return False
     meta = lire_meta()
     age = _age_secondes(meta.get('importe_le'))
     if not force and age is not None and age < MIN_AGE_AUTO:
@@ -268,10 +270,10 @@ def declencher_refresh_async(*, force: bool = False) -> bool:
             _async_started = False
 
     if not _lock.acquire(blocking=False):
-        return False
+        return True
     try:
         if _async_started:
-            return False
+            return True
         _async_started = True
         threading.Thread(target=_run, daemon=True, name='engine-sync').start()
         return True

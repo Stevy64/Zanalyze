@@ -1661,6 +1661,7 @@ button { cursor: pointer; }
 .banner { background: var(--info-bg); }
 .banner-update { background: var(--warn-bg); }
 .banner-offline { background: #fef3c7; color: #78350f; }
+.banner-fresh { background: #ecfdf3; color: #14532d; }
 .banner .btn-text { margin-left: 8px; }
 .ok { color: var(--ok); }
 .ko { color: var(--ko); }

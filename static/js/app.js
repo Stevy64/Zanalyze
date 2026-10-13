@@ -512,30 +512,36 @@ function zanalyz() {
      * rangeait dans `engineMeta`… que rien n'affichait. Quand l'import
      * échouait, l'app servait des analyses périmées sans aucun signe. */
     get etatMoteur() {
+      if (this.majMoteur) {
+        return { ok: true, attente: true, texte: 'Mise à jour des analyses…' };
+      }
       const m = this.engineMeta;
       if (!m) return null;
-      const quand = m.exporte_le || m.importe_le || '';
+      const calcul = m.exporte_le || m.importe_le || '';
+      const controle = m.importe_le || m.exporte_le || '';
+      if (!calcul) return null;
       const ok = m.dernier_ok !== false;
+      const t = Date.parse(controle);
+      const recent = Number.isFinite(t) && (Date.now() - t) <= 12 * 3600 * 1000;
+      if (ok && recent) {
+        return {
+          ok: true,
+          attente: false,
+          texte: 'Analyses à jour, calculées le ' + fmtCache(calcul) + '.',
+        };
+      }
       if (!ok) {
-        const detail = String(m.dernier_detail || '').slice(0, 120);
         return {
           ok: false,
-          texte: 'Les données du moteur n’ont pas pu être mises à jour'
-            + (quand ? ' — dernières reçues le ' + fmtCache(quand) : '')
-            + (detail ? ' (' + detail + ')' : '') + '.',
+          attente: false,
+          texte: 'Analyses du ' + fmtCache(calcul) + '. La mise à jour n’a pas abouti.',
         };
       }
-      // Au-delà de six heures, le cycle de deux heures a manqué trois tours.
-      const t = Date.parse(quand);
-      const vieux = Number.isFinite(t) && (Date.now() - t) > 6 * 3600 * 1000;
-      if (vieux) {
-        return {
-          ok: false,
-          texte: 'Données du moteur datées du ' + fmtCache(quand)
-            + ' — le rafraîchissement semble arrêté.',
-        };
-      }
-      return { ok: true, texte: '' };
+      return {
+        ok: false,
+        attente: false,
+        texte: 'Analyses du ' + fmtCache(calcul) + '.',
+      };
     },
     logoUrl(eq) {
       if (!eq) return '';
@@ -618,6 +624,7 @@ function zanalyz() {
     _dialogResolve: null,
     horsLigne: false,
     engineMeta: null,
+    majMoteur: false,
     // Le cache navigateur peut servir une liste datée : ces deux champs
     // permettent de l'annoncer au lieu de la faire passer pour courante.
     cachePerime: false,
@@ -732,11 +739,17 @@ function zanalyz() {
           await this.verifierPaiementPremium();
         }
         // Import snapshot en arrière-plan : ne doit jamais bloquer le premier affichage.
+        if (this.etatMoteur && !this.etatMoteur.ok) this.majMoteur = true;
         this.syncEngine(false).then((r) => {
+          if (r && r.demarre) {
+            this.suivreMiseAJourMoteur(r);
+            return;
+          }
+          this.majMoteur = false;
           if (r && r.ok && !r.skipped && this.page === 'matchs') {
             this.chargerMatchs({ forceNetwork: true });
           }
-        }).catch(() => {});
+        }).catch(() => { this.majMoteur = false; });
         await this.chargerCompetitions();
         await this.routeData();
         if (this.premiumReference && !this.authentifie) {
@@ -932,6 +945,27 @@ function zanalyz() {
       const exp = new Date(this.vipExpireLe);
       if (Number.isNaN(exp.getTime())) return null;
       return Math.max(0, Math.ceil((exp.getTime() - Date.now()) / (24 * 3600 * 1000)));
+    },
+
+    async suivreMiseAJourMoteur(depart) {
+      const avant = (depart && (depart.importe_le || depart.exporte_le)) || '';
+      this.majMoteur = true;
+      try {
+        for (let i = 0; i < 24; i++) {
+          await new Promise((resoudre) => setTimeout(resoudre, 5000));
+          const { data, ok } = await getJSON('/api/v1/sync/engine/', { timeoutMs: 8000 });
+          if (!ok || !data) continue;
+          const maintenant = data.importe_le || data.exporte_le || '';
+          const echec = data.dernier_ok === false;
+          if ((maintenant && maintenant !== avant) || echec) {
+            this.engineMeta = data;
+            if (!echec && this.page === 'matchs') this.chargerMatchs({ forceNetwork: true });
+            return;
+          }
+        }
+      } finally {
+        this.majMoteur = false;
+      }
     },
 
     async syncEngine(force = false) {

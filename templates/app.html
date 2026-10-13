@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=121">
+  <link rel="stylesheet" href="/static/css/app.css?v=123">
 </head>
 <body
   x-data="zanalyz()"
@@ -85,7 +85,13 @@
       Liste enregistrée<span x-show="cacheDate" x-text="' du ' + fmtCache(cacheDate)"></span> —
       certains matchs peuvent être joués.
     </div>
-    <div class="banner banner-offline" x-show="etatMoteur && !etatMoteur.ok" x-cloak role="status">
+    <div
+      class="banner"
+      :class="etatMoteur && etatMoteur.ok ? (etatMoteur.attente ? '' : 'banner-fresh') : 'banner-offline'"
+      x-show="etatMoteur"
+      x-cloak
+      role="status"
+    >
       <span x-text="etatMoteur ? etatMoteur.texte : ''"></span>
     </div>
     <div class="banner banner-update" x-show="swWaiting" x-cloak>
@@ -2244,7 +2250,7 @@
     </a>
   </nav>
 
-  <script defer src="/static/js/app.js?v=121"></script>
+  <script defer src="/static/js/app.js?v=123"></script>
   <script defer src="/static/vendor/alpine.min.js?v=60"></script>
 </body>
 </html>

@@ -76,10 +76,12 @@ class EngineSyncApiTests(TestCase):
         self.assertIn('engine', r.data)
 
     @override_settings(ZANALYZ_SYNC_LIVE='0')
-    def test_import_auto_desactive_sans_tache_de_fond(self):
+    def test_import_snapshot_meme_sans_sync_live(self):
         with patch('paris.engine_sync.threading.Thread') as thread:
-            self.assertFalse(engine_sync.declencher_refresh_async())
-            thread.assert_not_called()
+            self.assertTrue(engine_sync.declencher_refresh_async())
+            thread.return_value.start.assert_called_once()
+            self.assertTrue(engine_sync.declencher_refresh_async())
+            thread.return_value.start.assert_called_once()
 
     @override_settings(ZANALYZ_SYNC_LIVE='1')
     def test_import_auto_attend_apres_echec(self):

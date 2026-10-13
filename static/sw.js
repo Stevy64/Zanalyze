@@ -1,8 +1,8 @@
-const CACHE = 'paris-v121';
+const CACHE = 'paris-v123';
 const PRECACHE = [
   '/manifest.webmanifest',
-  '/static/css/app.css?v=121',
-  '/static/js/app.js?v=121',
+  '/static/css/app.css?v=123',
+  '/static/js/app.js?v=123',
   '/static/vendor/alpine.min.js?v=60',
   '/static/img/hero-accueil.jpg',
   '/static/brand/zanalyze-logo.png',

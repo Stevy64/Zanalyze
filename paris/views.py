@@ -437,11 +437,12 @@ class SyncEngine(APIView):
         force = str(request.data.get('force', '')).lower() in ('1', 'true', 'yes', 'on')
         # Auto : import en arrière-plan pour ne pas bloquer le premier paint PWA.
         if not force:
-            declencher_refresh_async(force=False)
+            demarre = declencher_refresh_async(force=False)
             return Response({
                 'ok': True,
                 'skipped': True,
-                'reason': 'async',
+                'reason': 'async' if demarre else 'recent',
+                'demarre': demarre,
                 **etat_sync(),
             })
         result = importer_engine(force=True)
