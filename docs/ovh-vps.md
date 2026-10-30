@@ -1,5 +1,7 @@
 ﻿# Déploiement Zanalyze sur VPS OVH Cloud (recommandé)
 
+Machine vide, avec Docker ou systemd. Si ce VPS fait déjà tourner le cluster k3s de Wayizé, suivez [ovh-cluster.md](ovh-cluster.md) : même Traefik, même Postgres, sous-domaine `zanalyze.gabomazone.com`.
+
 Cible **production** : egress libre → ingest ESPN / snapshot Engine OK, TLS, cron, Postgres possible.
 
 Deux chemins :

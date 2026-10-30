@@ -31,6 +31,7 @@ make health
 
 | Cible | Quand | Doc |
 |-------|--------|-----|
+| **Cluster k3s** | Le VPS fait déjà tourner Wayizé | [ovh-cluster.md](ovh-cluster.md) |
 | **OVH VPS** sans Docker | systemd + nginx + Gunicorn | [ovh-vps.md](ovh-vps.md) section B |
 | **Oracle Cloud** | Free Tier, egress OK | [oracle-cloud.md](oracle-cloud.md) |
 | **PythonAnywhere** | Prototype sans Docker | [pythonanywhere.md](pythonanywhere.md) — snapshot **Zanalyze Engine** |

@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zanalyze-moteur
+  namespace: zanalyze
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zanalyze-moteur
+  template:
+    metadata:
+      labels:
+        app: zanalyze-moteur
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: moteur
+          image: ghcr.io/stevy64/zanalyze:main
+          imagePullPolicy: Always
+          workingDir: /app
+          command: ["uvicorn", "moteur_service.app:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+          envFrom:
+            - secretRef:
+                name: zanalyze
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+          ports:
+            - containerPort: 8001
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: zanalyze-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moteur
+  namespace: zanalyze
+spec:
+  selector:
+    app: zanalyze-moteur
+  ports:
+    - port: 8001
+      targetPort: 8001

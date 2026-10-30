@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zanalyze-worker
+  namespace: zanalyze
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zanalyze-worker
+  template:
+    metadata:
+      labels:
+        app: zanalyze-worker
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: ghcr.io/stevy64/zanalyze:main
+          imagePullPolicy: Always
+          workingDir: /app
+          command: ["sh", "/app/deploy/worker-loop.sh"]
+          envFrom:
+            - secretRef:
+                name: zanalyze
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: media
+              mountPath: /app/media
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: zanalyze-data
+        - name: media
+          persistentVolumeClaim:
+            claimName: zanalyze-media

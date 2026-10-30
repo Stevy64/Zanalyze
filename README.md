@@ -65,7 +65,8 @@ pytest
 
 | Cible | Doc | Notes |
 |-------|-----|--------|
-| **VPS Docker (OVH / Oracle…)** | [docs/docker.md](docs/docker.md) + [docs/ovh-vps.md](docs/ovh-vps.md) | **Recommandé** — stack complète autonome |
+| **Cluster k3s (VPS Wayizé)** | [docs/ovh-cluster.md](docs/ovh-cluster.md) | Même machine, `zanalyze.gabomazone.com` |
+| **VPS Docker (OVH / Oracle…)** | [docs/docker.md](docs/docker.md) + [docs/ovh-vps.md](docs/ovh-vps.md) | Machine vide, stack Docker autonome |
 | Feuille de route | [docs/deploy.md](docs/deploy.md) | Choix d’hébergeur |
 | Architecture | [docs/architecture.md](docs/architecture.md) | web · moteur · worker · db · redis · nginx |
 | **PythonAnywhere** | [docs/pythonanywhere.md](docs/pythonanywhere.md) | Import snapshot Engine |
